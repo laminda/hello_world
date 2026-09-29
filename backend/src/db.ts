@@ -436,6 +436,24 @@ CREATE TABLE IF NOT EXISTS app_settings (
   value TEXT NOT NULL,
   updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS person_candidates (
+  id TEXT PRIMARY KEY,
+  investigation_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  company TEXT,
+  position TEXT,
+  city TEXT,
+  extract TEXT,
+  source_id TEXT,
+  match_json TEXT,
+  same_person TEXT NOT NULL DEFAULT 'insufficient',
+  confidence REAL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'CANDIDATE',
+  created_at TEXT,
+  updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cand_inv ON person_candidates(investigation_id);
 `);
 
 export function nowIso() {

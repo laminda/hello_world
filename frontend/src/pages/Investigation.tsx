@@ -7,6 +7,7 @@ import PivotGraph from "../components/PivotGraph";
 
 const TABS = [
   "overview",
+  "candidates",
   "strategy",
   "pivots",
   "hypotheses",
@@ -148,6 +149,20 @@ export default function Investigation() {
 
       <div className="ws-body">
       {tab === "overview" && (
+        <>
+        {ws.identity && (
+          <div className="identity-card">
+            <div className="kicker">Identity</div>
+            <div className="flex">
+              <h3 style={{ margin: 0 }}>{ws.identity.person || "—"}</h3>
+              <span className={`badge ${ws.identity.identified ? "st-SUPPORTED" : "st-HYPOTHESIS"}`}>
+                {ws.identity.identified ? "IDENTIFIED" : "CANDIDATE"} {Math.round((ws.identity.identity_confidence || 0) * 100)}%
+              </span>
+              <span className="badge st-OBSERVED">{ws.identity.playbook?.playbook}</span>
+            </div>
+            <div className="small muted">{(ws.identity.why || []).join(" · ")}</div>
+          </div>
+        )}
         <div className="overview-grid">
           <div className="ws-main">
             <div className="col">
@@ -235,8 +250,9 @@ export default function Investigation() {
             </div>
           </div>
         </div>
+        </>
       )}
-
+      {tab === "candidates" && <CandidatesTab ws={ws} />}
       {tab === "strategy" && <StrategyTab ws={ws} onIngest={reload} />}
       {tab === "pivots" && <PivotsTab ws={ws} />}
       {tab === "hypotheses" && <HypothesesTab ws={ws} />}
@@ -365,6 +381,56 @@ export default function Investigation() {
           </div>
         </aside>
       )}
+    </div>
+  );
+}
+
+function CandidatesTab({ ws }: { ws: Workspace }) {
+  const rows = ws.candidates || [];
+  return (
+    <div style={{ overflow: "auto", padding: 12 }}>
+      <div className="kicker">SEARCH → CANDIDATES → MATCH → IDENTITY</div>
+      <h2 style={{ margin: "6px 0 8px" }}>Person candidates</h2>
+      <p className="muted small">
+        Упоминание ≠ идентифицированное лицо. Совпадение только при ≥2 независимых сигналах (имя + компания / должность / email).
+      </p>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Company</th>
+            <th>Position</th>
+            <th>same_person</th>
+            <th>Conf</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((c) => {
+            let why = "";
+            try {
+              why = ((JSON.parse(c.match_json || "{}") as { why?: string[] }).why || []).join("; ");
+            } catch {
+              why = "";
+            }
+            return (
+              <tr key={c.id}>
+                <td>{c.name}</td>
+                <td>{c.company || "—"}</td>
+                <td>{c.position || "—"}</td>
+                <td>
+                  <span className={`badge ${c.same_person === "likely" ? "st-SUPPORTED" : "st-HYPOTHESIS"}`}>
+                    {c.same_person || "insufficient"}
+                  </span>
+                </td>
+                <td className="mono">{Math.round((c.confidence || 0) * 100)}%</td>
+                <td className="small muted">{why}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {!rows.length && <p className="muted">Пока нет кандидатов — ingest публичного текста или extract_candidates.</p>}
     </div>
   );
 }

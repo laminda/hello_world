@@ -14,6 +14,7 @@ import { methodology as identity } from "./methodologies/identity.js";
 import { methodology as network } from "./methodologies/network.js";
 import { methodology as nlp } from "./methodologies/nlp.js";
 import { methodology as llmReasoner } from "./methodologies/llm-reasoner.js";
+import { methodology as personIntel } from "./methodologies/person-intel.js";
 import { fail, type Methodology, type OsintToolMeta, type ToolCall, type ToolModule, type ToolResult } from "./types.js";
 
 export const METHODOLOGIES: Methodology[] = [
@@ -28,6 +29,7 @@ export const METHODOLOGIES: Methodology[] = [
   network,
   nlp,
   llmReasoner,
+  personIntel,
 ];
 
 const modules: ToolModule[] = METHODOLOGIES.flatMap((m) => m.tools);
@@ -109,6 +111,35 @@ export function planNextTool(opts: {
       0.98
     );
   }
+
+  add(
+    "select_playbook",
+    {
+      name: opts.input.name || "",
+      last_name: opts.input.last_name || "",
+      organization: org,
+      position: opts.input.position || "",
+      email: opts.input.email || "",
+      username: opts.input.username || "",
+      inn: opts.input.inn || "",
+      url: opts.input.url || "",
+    },
+    "person identification playbook",
+    0.975
+  );
+  add(
+    "generate_person_queries",
+    {
+      name: opts.input.name || "",
+      last_name: opts.input.last_name || "",
+      organization: org,
+      position: opts.input.position || "",
+      city: opts.input.city || "",
+      email: opts.input.email || "",
+    },
+    "person query generator from partial identity",
+    0.97
+  );
 
   add(
     "compile_dorks",

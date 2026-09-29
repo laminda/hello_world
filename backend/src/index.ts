@@ -9,6 +9,8 @@ import { seedStrategyLayer } from "./seed-strategy.js";
 import { bus, ingestManual, runInvestigation, runOneTool, stopInvestigation } from "./agent.js";
 import { listMethodologies, listToolCalls, listTools, llmStatus } from "./osint-tools.js";
 import { investigationMetrics } from "./metrics.js";
+import { identityConfidence, listCandidates } from "./person.js";
+import type { InvestigationInput } from "./types.js";
 import { readSettings, writeSettings } from "./settings.js";
 import { investigationGraph } from "./graph.js";
 import { knownUnknown, planQueries } from "./planner.js";
@@ -17,7 +19,6 @@ import { listCatalog, setCatalogEnabled } from "./registry.js";
 import { createConnector, listConnectors } from "./connectors.js";
 import { listInferences } from "./inference.js";
 import { pivotGraph } from "./pivot.js";
-import type { InvestigationInput } from "./types.js";
 
 const PORT = Number(process.env.PORT || 3001);
 const HOST = "0.0.0.0";
@@ -234,6 +235,8 @@ app.get("/api/investigations/:id/workspace", async (req, reply) => {
     toolCalls: listToolCalls(id),
     tools: listTools(),
     metrics: investigationMetrics(id),
+    candidates: listCandidates(id),
+    identity: identityConfidence(id, inputMap as InvestigationInput),
   };
 });
 

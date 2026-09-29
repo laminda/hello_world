@@ -9,9 +9,10 @@ describe("tool catalog", () => {
     const methods = listMethodologies();
     assert.ok(methods.map((m) => m.id).includes("google-dorks"));
     assert.ok(methods.map((m) => m.id).includes("llm-reasoner"));
+    assert.ok(methods.map((m) => m.id).includes("person-intel"));
     const names = tools.map((t) => t.name);
     assert.equal(new Set(names).size, names.length);
-    for (const t of ["compile_dorks", "dork_search", "web_search", "alias_expand", "llm_plan_strategy"]) {
+    for (const t of ["compile_dorks", "dork_search", "web_search", "alias_expand", "llm_plan_strategy", "select_playbook", "generate_person_queries", "extract_candidates", "score_person_match"]) {
       assert.ok(names.includes(t), `missing ${t}`);
     }
     for (const t of tools) {
@@ -92,17 +93,16 @@ describe("planNextTool", () => {
   clearSetting("llm_api_key");
   const input = { name: "Юлия", last_name: "Лагутина", organization: "Магнит" };
 
-  it("starts with compile_dorks when LLM is off", () => {
+  it("starts with person playbook when LLM is off", () => {
     const call = planNextTool({ input, targetType: "middle_manager", used: [], unknown: ["email"], sourceCount: 0 });
-    assert.equal(call.tool, "compile_dorks");
+    assert.equal(call.tool, "select_playbook");
   });
 
-  it("after compile_dorks, next is a dork_search", () => {
+  it("after playbook, generates person queries", () => {
     const first = planNextTool({ input, targetType: "middle_manager", used: [], unknown: [], sourceCount: 0 });
     const used = [`${first.tool}:${JSON.stringify(first.args)}`];
     const second = planNextTool({ input, targetType: "middle_manager", used, unknown: [], sourceCount: 0 });
-    assert.equal(second.tool, "dork_search");
-    assert.ok(second.args.dork);
+    assert.equal(second.tool, "generate_person_queries");
   });
 
   it("does not repeat a used tool+args pair", () => {

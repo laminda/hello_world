@@ -196,6 +196,29 @@ export interface Workspace {
     edges: Array<{ from: string; to: string; reason: string; confidence: number }>;
     identifiers: Array<{ kind: string; value: string; priority: string; status: string }>;
   };
+  candidates?: Array<{
+    id: string;
+    name: string;
+    company?: string;
+    position?: string;
+    city?: string;
+    extract?: string;
+    same_person?: string;
+    confidence?: number;
+    status?: string;
+    match_json?: string;
+  }>;
+  identity?: {
+    person?: string | null;
+    identity_confidence?: number;
+    identified?: boolean;
+    independent_sources?: number;
+    candidates?: number;
+    likely_same?: number;
+    contradictions?: number;
+    why?: string[];
+    playbook?: { playbook: string; reason: string };
+  };
   hints?: Array<{ id: string; kind: string; value: string; note?: string; status: string }>;
   strategy?: {
     profile: {

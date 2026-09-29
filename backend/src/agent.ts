@@ -22,6 +22,7 @@ import {
   sha256,
 } from "./extract.js";
 import { emailIntelligence, extractEntities, extractFacts, generateAliases } from "./nlp.js";
+import { harvestCandidates } from "./person.js";
 import {
   addAlias,
   addFact,
@@ -181,6 +182,8 @@ function ingestText(opts: {
       });
     }
   }
+  const seed = inputsOf(opts.investigationId);
+  harvestCandidates(opts.investigationId, opts.text, seed, opts.sourceId);
   return { entities: entities.length, facts: facts.length };
 }
 
@@ -502,6 +505,13 @@ export async function runInvestigation(investigationId: string) {
           : `TOOL ${call.tool} FAILED: ${result.error || result.summary}`,
       });
 
+      if (result.ok && result.data && call.tool === "generate_person_queries") {
+        const qs = (result.data.queries as Array<{ query: string; reason?: string }> | undefined) || [];
+        for (const q of qs.slice(0, 6)) {
+          suggested.push({ tool: "dork_search", args: { dork: q.query }, reason: q.reason || "person query" });
+        }
+        emit(investigationId, { level: "search", message: `Person queries: ${qs.length} queued` });
+      }
       if (result.ok && result.data && call.tool === "compile_dorks") {
         const dorks = (result.data.dorks as Array<{ dork: string; reason?: string }> | undefined) || [];
         for (const d of dorks.slice(0, 6)) {
