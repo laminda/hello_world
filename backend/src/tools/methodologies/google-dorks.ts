@@ -1,4 +1,4 @@
-import { searchAll } from "../../search.js";
+import { searchWeb, toToolResult } from "../../search.js";
 import { compileDorks } from "../dorks.js";
 import type { InvestigationInput } from "../../types.js";
 import { fail, ok, type Methodology, type ToolModule } from "../types.js";
@@ -54,8 +54,8 @@ const search: ToolModule = {
   async execute(args) {
     const dork = args.dork || "";
     if (!dork.trim()) return fail("dork required");
-    const hits = await searchAll(dork);
-    return ok(`${hits.length} hits for dork`, { hits, data: { dork } });
+    const r = toToolResult(await searchWeb(dork), "hits for dork");
+    return { ...r, data: { ...(r.data || {}), dork } };
   },
 };
 

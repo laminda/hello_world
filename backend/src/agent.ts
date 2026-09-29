@@ -22,7 +22,8 @@ import {
   sha256,
 } from "./extract.js";
 import { emailIntelligence, extractEntities, extractFacts, generateAliases } from "./nlp.js";
-import { harvestCandidates } from "./person.js";
+import { harvestCandidates, identityConfidence, listCandidates, rankHitsForIngest } from "./person.js";
+import { investigationFunnel, logSearch } from "./funnel.js";
 import {
   addAlias,
   addFact,
@@ -455,9 +456,12 @@ export async function runInvestigation(investigationId: string) {
         `SELECT COUNT(*) as c FROM facts WHERE investigation_id = ?`,
         investigationId
       )!.c;
+      const candCount = listCandidates(investigationId).length;
+      const ident = identityConfidence(investigationId, input);
+      const funnel = investigationFunnel(investigationId, input);
 
       const stop = evaluateStop(investigationId);
-      if (stop.complete && iteration > 2) {
+      if (stop.complete) {
         emit(investigationId, { level: "success", message: `Stop condition: ${stop.reason}` });
         break;
       }
@@ -475,6 +479,14 @@ export async function runInvestigation(investigationId: string) {
           used: usedKeys,
           unknown: profile.unknown,
           sourceCount,
+          identity: {
+            identified: ident.identified,
+            identity_confidence: ident.identity_confidence,
+            likely_same: ident.likely_same,
+            playbook: ident.playbook.playbook,
+          },
+          searchDown: funnel.search_down,
+          preferredSource: ranked[0]?.source_id,
         });
       if (call.tool === "stop") {
         emit(investigationId, { level: "info", message: `Tool planner stop: ${call.reason}` });
@@ -490,14 +502,6 @@ export async function runInvestigation(investigationId: string) {
       const t0 = Date.now();
       const result = await executeTool(call.tool, call.args);
       const duration = Date.now() - t0;
-      logToolCall({
-        investigationId,
-        tool: call.tool,
-        args: call.args,
-        reason: call.reason,
-        result,
-        durationMs: duration,
-      });
       emit(investigationId, {
         level: result.ok ? "extract" : "warn",
         message: result.ok
@@ -533,18 +537,66 @@ export async function runInvestigation(investigationId: string) {
         emit(investigationId, { level: "info", message: `DNS ${JSON.stringify(result.data).slice(0, 180)}` });
       }
 
-      for (const hit of (result.hits ?? []).slice(0, 4)) {
+      const allowVideo = profile.targetType === "public_top_manager" || profile.targetType === "public_person";
+      const rankedHits = rankHitsForIngest(result.hits ?? [], { allowVideo });
+      let ingested = 0;
+      for (const item of rankedHits.keep.slice(0, 4)) {
         try {
-          await ingestHit(investigationId, hit, hintName);
+          await ingestHit(investigationId, item.hit, hintName);
+          ingested += 1;
         } catch (err) {
-          emit(investigationId, { level: "warn", message: `Ingest failed for ${hit.url}: ${(err as Error).message}` });
+          emit(investigationId, { level: "warn", message: `Ingest failed for ${item.hit.url}: ${(err as Error).message}` });
         }
+      }
+      if (rankedHits.skipped.length) {
+        emit(investigationId, {
+          level: "search",
+          message: `Skipped ${rankedHits.skipped.length} hits (${rankedHits.skipped.map((s) => s.kind).join(", ")})`,
+        });
       }
 
       resolveEntities(investigationId);
       detectContradictions(investigationId);
       detectCopies(investigationId);
-      feedback(investigationId, call.tool, Math.max(0, get<{ c: number }>(`SELECT COUNT(*) as c FROM facts WHERE investigation_id = ?`, investigationId)!.c - factCount), result.hits?.length ? 1 : 0);
+      const factsDelta = Math.max(
+        0,
+        get<{ c: number }>(`SELECT COUNT(*) as c FROM facts WHERE investigation_id = ?`, investigationId)!.c - factCount
+      );
+      const candidatesDelta = Math.max(0, listCandidates(investigationId).length - candCount);
+      const errorClass =
+        (result.data?.error_class as string) || result.error || (result.ok ? "ok" : "fail");
+      const query =
+        call.args.dork || call.args.query || call.args.url || call.args.username || call.args.inn || call.tool;
+      if (result.hits || errorClass !== "ok" || /search|dork/i.test(call.tool)) {
+        logSearch({
+          investigationId,
+          tool: call.tool,
+          query,
+          engine: String(result.data?.engine || call.tool),
+          errorClass,
+          hits: result.hits || [],
+          classified: rankedHits.classified.map((c) => ({ url: c.hit.url, kind: c.kind, relevance: c.relevance })),
+          ingested,
+          skipped: rankedHits.skipped.length,
+          factsDelta,
+          candidatesDelta,
+          durationMs: duration,
+          reason: call.reason,
+        });
+      }
+      logToolCall({
+        investigationId,
+        tool: call.tool,
+        args: call.args,
+        reason: call.reason,
+        result,
+        durationMs: duration,
+        factsDelta,
+        candidatesDelta,
+        ingested,
+      });
+      const useful = factsDelta;
+      feedback(investigationId, call.tool, useful, result.hits?.length ? result.hits.length : 0);
       run(`UPDATE investigations SET updated_at = ? WHERE id = ?`, nowIso(), investigationId);
     }
 

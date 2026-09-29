@@ -1,6 +1,9 @@
-import { get } from "./db.js";
+import { all, get } from "./db.js";
 import { evaluateStop } from "./graph.js";
+import { investigationFunnel } from "./funnel.js";
+import { identityConfidence } from "./person.js";
 import { readSettings } from "./settings.js";
+import type { InvestigationInput } from "./types.js";
 
 export function investigationMetrics(id: string) {
   const facts = get<{ c: number }>(`SELECT COUNT(*) as c FROM facts WHERE investigation_id = ?`, id)?.c ?? 0;
@@ -34,8 +37,14 @@ export function investigationMetrics(id: string) {
         pred
       )
     );
+  const rows = all<{ field: string; value: string }>(`SELECT field, value FROM investigation_inputs WHERE investigation_id = ?`, id);
+  const seed: InvestigationInput = {};
+  for (const r of rows) (seed as Record<string, string>)[r.field] = r.value;
+  const ident = identityConfidence(id, seed);
+  const funnel = investigationFunnel(id, seed);
   const checks = [
-    { id: "identity", label: "Имя / упоминание", ok: has("mentioned_as") || has("full_name") },
+    { id: "mention", label: "Упоминание", ok: has("mentioned_as") || has("full_name") },
+    { id: "identity", label: "Идентификация ≥2 сигналов", ok: ident.identified || ident.likely_same > 0 },
     { id: "position", label: "Должность", ok: has("held_position") },
     { id: "org", label: "Организация", ok: has("works_at") },
     { id: "sources", label: "≥2 независимых источника", ok: independent >= 2 },
@@ -59,5 +68,21 @@ export function investigationMetrics(id: string) {
     checks,
     stop,
     max_iterations: settings.max_iterations,
+    funnel: {
+      queries: funnel.queries,
+      hits: funnel.hits,
+      ingested: funnel.ingested,
+      skipped: funnel.skipped,
+      waste_pct: funnel.waste_pct,
+      empty: funnel.empty,
+      tls: funnel.tls,
+      network: funnel.network,
+      identified: funnel.identified,
+      identity_confidence: funnel.identity_confidence,
+      search_down: funnel.search_down,
+      by_error: funnel.by_error,
+      by_kind: funnel.by_kind,
+      per_tool: funnel.per_tool.slice(0, 12),
+    },
   };
 }

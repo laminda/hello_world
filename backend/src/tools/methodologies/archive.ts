@@ -1,5 +1,5 @@
-import { waybackCdx } from "../../search.js";
-import { ok, type Methodology, type ToolModule } from "../types.js";
+import { waybackCdxOutcome } from "../../search.js";
+import { ok, fail, type Methodology, type ToolModule } from "../types.js";
 
 const wayback: ToolModule = {
   meta: {
@@ -13,7 +13,10 @@ const wayback: ToolModule = {
     when: "old job titles, deleted about-pages",
   },
   async execute(args) {
-    const snaps = await waybackCdx(args.url || "", 10);
+    const { snaps, error, status } = await waybackCdxOutcome(args.url || "", 10);
+    if (!snaps.length) {
+      return fail(`${error}: 0 snapshots`, `${error}: 0 snapshots`);
+    }
     return ok(`${snaps.length} snapshots`, {
       hits: snaps.map((s, i) => ({
         url: s.archiveUrl,
@@ -22,7 +25,7 @@ const wayback: ToolModule = {
         provider: "wayback",
         rank: i + 1,
       })),
-      data: { snapshots: snaps },
+      data: { snapshots: snaps, error_class: "ok", status: status ?? null },
     });
   },
 };

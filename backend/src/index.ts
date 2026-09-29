@@ -10,6 +10,7 @@ import { bus, ingestManual, runInvestigation, runOneTool, stopInvestigation } fr
 import { listMethodologies, listToolCalls, listTools, llmStatus } from "./osint-tools.js";
 import { investigationMetrics } from "./metrics.js";
 import { identityConfidence, listCandidates } from "./person.js";
+import { investigationFunnel } from "./funnel.js";
 import type { InvestigationInput } from "./types.js";
 import { readSettings, writeSettings } from "./settings.js";
 import { investigationGraph } from "./graph.js";
@@ -237,6 +238,7 @@ app.get("/api/investigations/:id/workspace", async (req, reply) => {
     metrics: investigationMetrics(id),
     candidates: listCandidates(id),
     identity: identityConfidence(id, inputMap as InvestigationInput),
+    funnel: investigationFunnel(id, inputMap as InvestigationInput),
   };
 });
 

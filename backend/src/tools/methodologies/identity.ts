@@ -1,4 +1,4 @@
-import { searchAll } from "../../search.js";
+import { searchWeb, toToolResult } from "../../search.js";
 import { emailIntelligence, generateAliases } from "../../nlp.js";
 import { usernameHypotheses } from "../../strategy.js";
 import { fail, ok, type Methodology, type ToolModule } from "../types.js";
@@ -55,8 +55,7 @@ const userSearch: ToolModule = {
     when: "username hypothesis exists",
   },
   async execute(args) {
-    const hits = await searchAll(`"${args.username}"`);
-    return ok(`${hits.length} hits for username (not proof)`, { hits });
+    return toToolResult(await searchWeb(`"${args.username}"`), "hits for username (not proof)");
   },
 };
 
@@ -92,8 +91,11 @@ const inn: ToolModule = {
   async execute(args) {
     const value = (args.inn || "").replace(/\D/g, "");
     if (value.length < 10) return fail("INN must be 10 (org) or 12 (individual) digits from a lawful source");
-    const hits = await searchAll(`"${value}"`);
-    return ok(`${hits.length} public mentions of INN ${value} — org INN ≠ person; INN ≠ job title`, { hits });
+    const r = toToolResult(await searchWeb(`"${value}"`), `public mentions of INN ${value}`);
+    return {
+      ...r,
+      summary: `${r.summary} — org INN ≠ person; INN ≠ job title`,
+    };
   },
 };
 

@@ -69,6 +69,30 @@ export function classifySearchHit(hit: Pick<SearchHit, "url" | "title" | "snippe
   return { kind: "IRRELEVANT", relevance: 0.2 };
 }
 
+const KIND_PRIORITY: Record<string, number> = {
+  PERSON: 10,
+  DOCUMENT: 9,
+  PROFILE: 8,
+  NEWS: 7,
+  ARCHIVE: 6,
+  SOCIAL: 5,
+  COMPANY: 4,
+  IMAGE: 3,
+  VIDEO: 2,
+  IRRELEVANT: 0,
+};
+
+export function rankHitsForIngest(hits: SearchHit[], opts: { allowVideo?: boolean } = {}) {
+  const classified = hits.map((hit) => ({ hit, ...classifySearchHit(hit) }));
+  const skip = (c: (typeof classified)[number]) =>
+    c.kind === "IRRELEVANT" || (!opts.allowVideo && c.kind === "VIDEO");
+  const keep = classified
+    .filter((c) => !skip(c))
+    .sort((a, b) => KIND_PRIORITY[b.kind] - KIND_PRIORITY[a.kind] || b.relevance - a.relevance);
+  const skipped = classified.filter(skip);
+  return { keep, skipped, classified };
+}
+
 export function extractCandidates(text: string): PersonCandidate[] {
   const out: PersonCandidate[] = [];
   const facts = extractFacts(text);

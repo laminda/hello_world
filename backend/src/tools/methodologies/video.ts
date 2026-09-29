@@ -1,5 +1,5 @@
-import { searchYouTube } from "../../search.js";
-import { ok, type Methodology, type ToolModule } from "../types.js";
+import { searchYouTubeOutcome, toToolResult } from "../../search.js";
+import { type Methodology, type ToolModule } from "../types.js";
 
 const youtube: ToolModule = {
   meta: {
@@ -13,8 +13,7 @@ const youtube: ToolModule = {
     when: "CEO, speakers, interviews — low priority for obscure employees",
   },
   async execute(args) {
-    const hits = await searchYouTube(args.query || "");
-    return ok(`${hits.length} youtube hits`, { hits });
+    return toToolResult(await searchYouTubeOutcome(args.query || ""), "youtube hits");
   },
 };
 

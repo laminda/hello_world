@@ -1,5 +1,5 @@
-import { searchAll, searchDuckDuckGo } from "../../search.js";
-import { fail, ok, type Methodology, type ToolModule } from "../types.js";
+import { searchWeb, toToolResult } from "../../search.js";
+import { fail, type Methodology, type ToolModule } from "../types.js";
 
 const web: ToolModule = {
   meta: {
@@ -17,8 +17,7 @@ const web: ToolModule = {
     when: "unknown identity fields, need new URLs",
   },
   async execute(args) {
-    const hits = await searchAll(args.query || "");
-    return ok(`${hits.length} hits`, { hits });
+    return toToolResult(await searchWeb(args.query || ""), "web hits");
   },
 };
 
@@ -34,8 +33,7 @@ const news: ToolModule = {
     when: "public executives, media presence",
   },
   async execute(args) {
-    const hits = await searchAll(`${args.query || ""} СМИ OR interview OR пресс-релиз OR news`);
-    return ok(`${hits.length} news hits`, { hits });
+    return toToolResult(await searchWeb(`${args.query || ""} СМИ OR interview OR пресс-релиз OR news`), "news hits");
   },
 };
 
@@ -56,8 +54,7 @@ const site: ToolModule = {
   },
   async execute(args) {
     if (!args.site) return fail("site required");
-    const hits = await searchDuckDuckGo(`${args.query || ""} site:${args.site}`);
-    return ok(`${hits.length} site hits`, { hits });
+    return toToolResult(await searchWeb(`${args.query || ""} site:${args.site}`), "site hits");
   },
 };
 
@@ -81,8 +78,7 @@ const filetype: ToolModule = {
   },
   async execute(args) {
     const ft = args.filetype || "pdf";
-    const hits = await searchAll(`${args.query || ""} filetype:${ft}`);
-    return ok(`${hits.length} ${ft} hits`, { hits });
+    return toToolResult(await searchWeb(`${args.query || ""} filetype:${ft}`), `${ft} hits`);
   },
 };
 
@@ -98,8 +94,7 @@ const image: ToolModule = {
     when: "badge, conference photo, report image",
   },
   async execute(args) {
-    const hits = await searchAll(`${args.query || ""} фото OR portrait OR badge OR image`);
-    return ok(`${hits.length} image-ish hits`, { hits });
+    return toToolResult(await searchWeb(`${args.query || ""} фото OR portrait OR badge OR image`), "image-ish hits");
   },
 };
 

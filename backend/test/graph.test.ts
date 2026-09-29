@@ -68,13 +68,15 @@ describe("resolveEntities", () => {
 });
 
 describe("evaluateStop", () => {
-  it("incomplete until identity+role+org supported", () => {
+  it("mention + role + org is NOT identified (mention ≠ person)", () => {
     const id = createInvestigation("stop");
     assert.equal(evaluateStop(id).complete, false);
     addFact({ investigationId: id, predicate: "mentioned_as", value: "Татарский", status: "SUPPORTED", confidence: 0.9 });
     addFact({ investigationId: id, predicate: "held_position", value: "генеральный директор", status: "SUPPORTED", confidence: 0.9 });
     addFact({ investigationId: id, predicate: "works_at", value: "АО ЭРА", status: "SUPPORTED", confidence: 0.9 });
-    assert.equal(evaluateStop(id).complete, true);
+    const stop = evaluateStop(id);
+    assert.equal(stop.complete, false);
+    assert.match(stop.reason, /mention|identit|candidate/i);
   });
 });
 

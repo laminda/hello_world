@@ -8,6 +8,7 @@ import PivotGraph from "../components/PivotGraph";
 const TABS = [
   "overview",
   "candidates",
+  "funnel",
   "strategy",
   "pivots",
   "hypotheses",
@@ -38,7 +39,8 @@ function ProgressStrip({ ws }: { ws: Workspace }) {
       </div>
       <span className="mono small">
         {pct}% · facts {m?.observed ?? 0}/{m?.facts ?? ws.facts.length} · src {m?.independent ?? 0}/{m?.sources ?? ws.sources.length} ·
-        tools {m?.toolsOk ?? 0}/{m?.tools ?? 0} · queries {m?.queries ?? ws.queries.length} · conflicts {m?.conflicts ?? 0}
+        tools {m?.toolsOk ?? 0}/{m?.tools ?? 0} · q {m?.funnel?.queries ?? m?.queries ?? ws.queries.length} · hits {m?.funnel?.hits ?? 0} ·
+        waste {m?.funnel?.waste_pct ?? 0}% · tls {m?.funnel?.tls ?? 0} · empty {m?.funnel?.empty ?? 0}
       </span>
       <div className="chip-row">
         {(m?.checks || []).map((c) => (
@@ -62,6 +64,15 @@ type Metrics = {
   queries: number;
   conflicts: number;
   checks: Array<{ id: string; label: string; ok: boolean }>;
+  funnel?: {
+    queries: number;
+    hits: number;
+    ingested: number;
+    waste_pct: number;
+    empty: number;
+    tls: number;
+    identified: boolean;
+  };
 };
 
 function fileUrl(img: Workspace["images"][number]) {
@@ -253,6 +264,7 @@ export default function Investigation() {
         </>
       )}
       {tab === "candidates" && <CandidatesTab ws={ws} />}
+      {tab === "funnel" && <FunnelTab ws={ws} />}
       {tab === "strategy" && <StrategyTab ws={ws} onIngest={reload} />}
       {tab === "pivots" && <PivotsTab ws={ws} />}
       {tab === "hypotheses" && <HypothesesTab ws={ws} />}
@@ -381,6 +393,79 @@ export default function Investigation() {
           </div>
         </aside>
       )}
+    </div>
+  );
+}
+
+function FunnelTab({ ws }: { ws: Workspace }) {
+  const f = ws.funnel;
+  if (!f) return <p className="muted pad">Нет воронки — запустите агент.</p>;
+  const err = Object.entries(f.by_error || {});
+  const kinds = Object.entries(f.by_kind || {});
+  return (
+    <div style={{ overflow: "auto", padding: 12 }}>
+      <div className="kicker">SEARCH FUNNEL · system metrics</div>
+      <h2 style={{ margin: "6px 0 8px" }}>Как система ищет</h2>
+      <p className="muted small">
+        tls/empty ≠ успех. Waste — итерации с 0 hits и 0 фактов. Identified только при ≥2 сигналах.
+      </p>
+      <div className="chip-row" style={{ margin: "10px 0" }}>
+        <span className="chip on">queries {f.queries}</span>
+        <span className="chip on">hits {f.hits}</span>
+        <span className="chip on">ingested {f.ingested}</span>
+        <span className="chip on">skipped {f.skipped}</span>
+        <span className={`chip ${f.waste_pct > 50 ? "off" : "on"}`}>waste {f.waste_pct}%</span>
+        <span className={`chip ${f.search_down ? "off" : "on"}`}>{f.search_down ? "search DOWN" : "search up"}</span>
+        <span className={`chip ${f.identified ? "on" : "off"}`}>
+          identity {Math.round((f.identity_confidence || 0) * 100)}%
+        </span>
+      </div>
+      <div className="kicker">Error class</div>
+      <div className="chip-row">
+        {err.map(([k, n]) => (
+          <span key={k} className={`chip ${k === "ok" ? "on" : "off"}`}>
+            {k} {n as number}
+          </span>
+        ))}
+        {!err.length && <span className="muted small">пока нет поисковых вызовов</span>}
+      </div>
+      <div className="kicker" style={{ marginTop: 12 }}>
+        Hit kinds
+      </div>
+      <div className="chip-row">
+        {kinds.map(([k, n]) => (
+          <span key={k} className="chip on">
+            {k} {n as number}
+          </span>
+        ))}
+      </div>
+      <div className="kicker" style={{ marginTop: 16 }}>
+        Per tool
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Tool</th>
+            <th>Calls</th>
+            <th>Ok%</th>
+            <th>Hits</th>
+            <th>Facts</th>
+            <th>ms</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(f.per_tool || []).map((t) => (
+            <tr key={t.tool}>
+              <td className="mono small">{t.tool}</td>
+              <td>{t.calls}</td>
+              <td>{t.ok_pct}%</td>
+              <td>{t.hits}</td>
+              <td>{t.facts}</td>
+              <td className="mono">{t.mean_ms}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

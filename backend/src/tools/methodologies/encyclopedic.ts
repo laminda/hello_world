@@ -1,5 +1,5 @@
-import { searchWikipedia, searchWikidata } from "../../search.js";
-import { ok, type Methodology, type ToolModule } from "../types.js";
+import { mergeOutcomes, searchWikipediaOutcome, searchWikidataOutcome, toToolResult } from "../../search.js";
+import { type Methodology, type ToolModule } from "../types.js";
 
 const wiki: ToolModule = {
   meta: {
@@ -14,11 +14,10 @@ const wiki: ToolModule = {
   },
   async execute(args) {
     const [ru, en] = await Promise.all([
-      searchWikipedia(args.query || "", "ru"),
-      searchWikipedia(args.query || "", "en"),
+      searchWikipediaOutcome(args.query || "", "ru"),
+      searchWikipediaOutcome(args.query || "", "en"),
     ]);
-    const hits = [...ru, ...en];
-    return ok(`${hits.length} wiki hits`, { hits });
+    return toToolResult(mergeOutcomes([ru, en], "wikipedia"), "wiki hits");
   },
 };
 
@@ -34,8 +33,7 @@ const wikidata: ToolModule = {
     when: "structured public-person facts",
   },
   async execute(args) {
-    const hits = await searchWikidata(args.query || "");
-    return ok(`${hits.length} wikidata hits`, { hits });
+    return toToolResult(await searchWikidataOutcome(args.query || ""), "wikidata hits");
   },
 };
 

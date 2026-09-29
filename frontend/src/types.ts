@@ -196,6 +196,30 @@ export interface Workspace {
     edges: Array<{ from: string; to: string; reason: string; confidence: number }>;
     identifiers: Array<{ kind: string; value: string; priority: string; status: string }>;
   };
+  funnel?: {
+    queries: number;
+    hits: number;
+    ingested: number;
+    skipped: number;
+    waste_pct: number;
+    empty: number;
+    tls: number;
+    network: number;
+    search_down: boolean;
+    identified: boolean;
+    identity_confidence: number;
+    by_error: Record<string, number>;
+    by_kind: Record<string, number>;
+    per_tool: Array<{
+      tool: string;
+      calls: number;
+      ok: number;
+      ok_pct: number;
+      hits: number;
+      facts: number;
+      mean_ms: number;
+    }>;
+  };
   candidates?: Array<{
     id: string;
     name: string;

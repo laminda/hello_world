@@ -1,7 +1,8 @@
 import { all, db, get, logAction, nowIso, run } from "./db.js";
 import { nameSimilarity } from "./nlp.js";
 import { independentSourceCount } from "./independence.js";
-import type { FactStatus } from "./types.js";
+import { identityConfidence } from "./person.js";
+import type { FactStatus, InvestigationInput } from "./types.js";
 
 export function upsertEntity(
   investigationId: string,
@@ -305,22 +306,28 @@ export function investigationGraph(investigationId: string) {
 }
 
 export function evaluateStop(investigationId: string): { complete: boolean; reason: string } {
-  const facts = all<{ predicate: string; status: string; confidence: number }>(
-    `SELECT predicate, status, confidence FROM facts WHERE investigation_id = ?`,
+  const rows = all<{ field: string; value: string }>(
+    `SELECT field, value FROM investigation_inputs WHERE investigation_id = ?`,
     investigationId
   );
-  const by = (p: string) => facts.filter((f) => f.predicate === p);
-  const confirmed = (p: string) =>
-    by(p).some((f) => f.status === "CONFIRMED" || (f.status === "SUPPORTED" && f.confidence >= 0.8));
+  const seed: InvestigationInput = {};
+  for (const r of rows) (seed as Record<string, string>)[r.field] = r.value;
+  const ident = identityConfidence(investigationId, seed);
+  if (ident.identified) {
+    return { complete: true, reason: "person identified with ≥2 independent signals" };
+  }
   const unresolved = get<{ c: number }>(
     `SELECT COUNT(*) as c FROM contradictions WHERE investigation_id = ? AND status = 'UNRESOLVED'`,
     investigationId
   )!.c;
-  const identityOk = confirmed("full_name") || confirmed("mentioned_as");
-  const posOk = confirmed("held_position");
-  const orgOk = confirmed("works_at");
-  if (identityOk && posOk && orgOk && unresolved === 0) {
-    return { complete: true, reason: "critical identity fields resolved with independent evidence" };
+  const mention = ident.confirmed_attributes.includes("mentioned_as") || ident.confirmed_attributes.includes("full_name");
+  const posOk = ident.confirmed_attributes.includes("held_position");
+  const orgOk = ident.confirmed_attributes.includes("works_at");
+  if (mention && posOk && orgOk && unresolved === 0 && ident.likely_same === 0) {
+    return {
+      complete: false,
+      reason: "attributes observed but identity not confirmed — mention ≠ identified person",
+    };
   }
-  return { complete: false, reason: "insufficient confirmed identity evidence" };
+  return { complete: false, reason: ident.why.slice(-1)[0] || "insufficient identity evidence" };
 }

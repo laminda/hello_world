@@ -15,11 +15,15 @@ import { methodology as network } from "./methodologies/network.js";
 import { methodology as nlp } from "./methodologies/nlp.js";
 import { methodology as llmReasoner } from "./methodologies/llm-reasoner.js";
 import { methodology as personIntel } from "./methodologies/person-intel.js";
+import { methodology as searchEngines } from "./methodologies/search-engines.js";
+import { methodology as digitalSearch } from "./methodologies/digital-search.js";
 import { fail, type Methodology, type OsintToolMeta, type ToolCall, type ToolModule, type ToolResult } from "./types.js";
 
 export const METHODOLOGIES: Methodology[] = [
   googleDorks,
   openWeb,
+  searchEngines,
+  digitalSearch,
   encyclopedic,
   video,
   harvest,
@@ -31,6 +35,17 @@ export const METHODOLOGIES: Methodology[] = [
   llmReasoner,
   personIntel,
 ];
+
+const SOURCE_TO_TOOL: Record<string, string> = {
+  official_website: "crawl_site",
+  news: "news_search",
+  youtube: "youtube_search",
+  wikipedia: "wikipedia_search",
+  web: "web_search",
+  documents: "filetype_search",
+  archive: "wayback_cdx",
+  github: "github_search",
+};
 
 const modules: ToolModule[] = METHODOLOGIES.flatMap((m) => m.tools);
 const byName = Object.fromEntries(modules.map((t) => [t.meta.name, t]));
@@ -70,11 +85,25 @@ export function planNextTool(opts: {
   used: string[];
   unknown: string[];
   sourceCount: number;
+  identity?: { identified?: boolean; identity_confidence?: number; likely_same?: number; playbook?: string };
+  searchDown?: boolean;
+  preferredSource?: string;
 }): ToolCall | { tool: "stop"; reason: string; args: Record<string, string> } {
+  if (opts.identity?.identified) {
+    return { tool: "stop", reason: "person identified with ≥2 independent signals", args: {} };
+  }
+  if (opts.searchDown) {
+    return { tool: "stop", reason: "search stack unavailable (tls/network) — not burning iterations", args: {} };
+  }
+
   const name = [opts.input.name, opts.input.middle_name, opts.input.last_name].filter(Boolean).join(" ");
   const org = opts.input.organization || "";
+  const pos = opts.input.position || "";
   const qName = name ? `"${name}"` : "";
   const qOrg = org ? `"${org}"` : "";
+  const qCore = `${qName} ${qOrg} ${pos ? `"${pos}"` : ""}`.trim();
+  const missingLast = !opts.input.last_name || (opts.unknown || []).includes("last_name");
+  const missingOrg = !org || (opts.unknown || []).includes("organization");
   const candidates: Array<ToolCall & { score: number }> = [];
   const add = (tool: string, args: Record<string, string>, reason: string, score: number) => {
     const key = `${tool}:${JSON.stringify(args)}`;
@@ -87,6 +116,7 @@ export function planNextTool(opts: {
   const ceo = opts.targetType === "public_top_manager" || opts.targetType === "public_person";
   const low = opts.targetType === "low_level_employee";
   const llm = llmStatus().configured;
+  const playbook = opts.identity?.playbook || "";
 
   if (llm) {
     add(
@@ -158,23 +188,55 @@ export function planNextTool(opts: {
     0.96
   );
 
-  for (const d of compileDorks(opts.input).slice(0, 8)) {
-    add("dork_search", { dork: d.dork }, `${d.family}: ${d.reason}`, d.score * 0.94);
+  for (const d of compileDorks(opts.input).slice(0, 6)) {
+    add("dork_search", { dork: d.dork }, `${d.family}: ${d.reason}`, d.score * 0.88);
+  }
+
+  if (qCore) {
+    add("exact_phrase_search", { query: qCore }, "quoted identity string", 0.78);
+    add("speaker_search", { query: qCore }, "speaker lists / bios", missingLast ? 0.93 : 0.7);
+    add("conference_search", { query: qCore }, "conference programmes", missingLast ? 0.91 : 0.62);
+    add("company_people_search", { query: qCore }, "org team pages", missingLast || playbook === "PERSON_FROM_COMPANY" ? 0.92 : 0.6);
+    add("press_search", { query: qCore }, "press / interviews", ceo ? 0.84 : 0.45);
+    add("education_search", { query: qCore }, "alumni pivot", 0.5);
+    add("award_search", { query: qCore }, "awards / ratings", ceo ? 0.55 : 0.35);
+    add("pdf_cv_search", { query: qCore }, "public PDF CV / staff list", low || missingLast ? 0.86 : 0.5);
+    add("github_search", { query: qCore }, "public GitHub", low ? 0.7 : 0.35);
+    add("habr_search", { query: qCore }, "Habr", 0.48);
+    add("hh_public_search", { query: qCore }, "public job-board snippets — job ≠ identity", low ? 0.72 : 0.3);
+    add("linkedin_public_search", { query: qCore }, "LinkedIn public snippets, not login", 0.4);
+    add("gov_search", { query: qCore }, "gov.ru mentions", 0.4);
+    add("sudact_search", { query: qCore }, "public court acts", 0.32);
   }
 
   if (name) {
-    add("web_search", { query: `${qName} ${qOrg}`.trim() }, "surface discovery", 0.7);
+    add("web_search", { query: `${qName} ${qOrg}`.trim() }, "surface discovery", 0.68);
+    add("multi_engine_search", { query: `${qName} ${qOrg}`.trim() }, "fallback engines if DDG empty/tls", 0.66);
     add("wikipedia_search", { query: name }, "encyclopedic identity", ceo ? 0.88 : 0.35);
     add("filetype_search", { query: `${qName} ${qOrg}`.trim(), filetype: "pdf" }, "staff lists / reports", low ? 0.9 : 0.55);
     add("news_search", { query: `${qName} ${qOrg}`.trim() }, "media", ceo ? 0.86 : 0.4);
-    add("youtube_search", { query: `${qName} ${qOrg}`.trim() }, "talks/interviews", ceo ? 0.9 : 0.45);
-    add("image_search", { query: `${qName}`.trim() }, "public photos", 0.4);
+    add("youtube_search", { query: `${qName} ${qOrg}`.trim() }, "talks/interviews", ceo ? 0.72 : 0.25);
+    add("image_search", { query: `${qName}`.trim() }, "public photos", 0.28);
     add(
       "alias_expand",
       { name: opts.input.name || "", middle_name: opts.input.middle_name || "", last_name: opts.input.last_name || "" },
       "alias engine",
       0.6
     );
+  }
+  if (missingOrg && name) {
+    add("news_search", { query: qName }, "org unknown — media may name employer", 0.74);
+    add("habr_search", { query: qName }, "org unknown — tech footprint", 0.55);
+  }
+  if (opts.preferredSource && SOURCE_TO_TOOL[opts.preferredSource]) {
+    const t = SOURCE_TO_TOOL[opts.preferredSource];
+    const args =
+      t === "crawl_site" && opts.input.url
+        ? { url: opts.input.url }
+        : t === "filetype_search"
+          ? { query: qCore, filetype: "pdf" }
+          : { query: qCore };
+    add(t, args, `catalog dispatcher → ${opts.preferredSource}`, 0.89);
   }
   if (opts.input.email) {
     add("email_pivot", { email: opts.input.email }, "local_part / domain hypotheses", 0.85);
@@ -219,12 +281,16 @@ export function logToolCall(opts: {
   reason: string;
   result: ToolResult;
   durationMs: number;
+  factsDelta?: number;
+  candidatesDelta?: number;
+  ingested?: number;
 }) {
   const c = get<{ c: number }>(`SELECT COUNT(*) as c FROM tool_calls`)!.c;
   const id = `TOOL-${String(c + 1).padStart(6, "0")}`;
+  const errorClass = (opts.result.data?.error_class as string) || opts.result.error || (opts.result.ok ? "ok" : "fail");
   run(
-    `INSERT INTO tool_calls (id, investigation_id, ts, tool, args_json, reason, ok, result_summary, hits, duration_ms, error)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO tool_calls (id, investigation_id, ts, tool, args_json, reason, ok, result_summary, hits, duration_ms, error, error_class, facts_delta, candidates_delta, ingested, funnel_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     opts.investigationId,
     nowIso(),
@@ -235,7 +301,12 @@ export function logToolCall(opts: {
     opts.result.summary,
     opts.result.hits?.length ?? 0,
     opts.durationMs,
-    opts.result.error ?? null
+    opts.result.error ?? null,
+    errorClass,
+    opts.factsDelta ?? 0,
+    opts.candidatesDelta ?? 0,
+    opts.ingested ?? 0,
+    JSON.stringify({ error_class: errorClass, engine: opts.result.data?.engine || null })
   );
   return id;
 }

@@ -10,9 +10,26 @@ describe("tool catalog", () => {
     assert.ok(methods.map((m) => m.id).includes("google-dorks"));
     assert.ok(methods.map((m) => m.id).includes("llm-reasoner"));
     assert.ok(methods.map((m) => m.id).includes("person-intel"));
+    assert.ok(methods.map((m) => m.id).includes("digital-search"));
+    assert.ok(methods.map((m) => m.id).includes("search-engines"));
     const names = tools.map((t) => t.name);
     assert.equal(new Set(names).size, names.length);
-    for (const t of ["compile_dorks", "dork_search", "web_search", "alias_expand", "llm_plan_strategy", "select_playbook", "generate_person_queries", "extract_candidates", "score_person_match"]) {
+    for (const t of [
+      "compile_dorks",
+      "dork_search",
+      "web_search",
+      "alias_expand",
+      "llm_plan_strategy",
+      "select_playbook",
+      "generate_person_queries",
+      "extract_candidates",
+      "score_person_match",
+      "speaker_search",
+      "github_search",
+      "brave_search",
+      "multi_engine_search",
+      "hh_public_search",
+    ]) {
       assert.ok(names.includes(t), `missing ${t}`);
     }
     for (const t of tools) {
@@ -96,6 +113,18 @@ describe("planNextTool", () => {
   it("starts with person playbook when LLM is off", () => {
     const call = planNextTool({ input, targetType: "middle_manager", used: [], unknown: ["email"], sourceCount: 0 });
     assert.equal(call.tool, "select_playbook");
+  });
+
+  it("stops when person is already identified", () => {
+    const call = planNextTool({
+      input,
+      targetType: "middle_manager",
+      used: [],
+      unknown: [],
+      sourceCount: 0,
+      identity: { identified: true, identity_confidence: 0.8, likely_same: 1 },
+    });
+    assert.equal(call.tool, "stop");
   });
 
   it("after playbook, generates person queries", () => {

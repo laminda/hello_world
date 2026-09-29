@@ -4,6 +4,7 @@ import {
   classifySearchHit,
   extractCandidates,
   generatePersonQueries,
+  rankHitsForIngest,
   scorePersonMatch,
   selectPlaybook,
 } from "../src/person.js";
@@ -48,6 +49,23 @@ describe("extractCandidates / score", () => {
     );
     assert.equal(full.same_person, "likely");
     assert.ok(full.independent_signals >= 2);
+  });
+});
+
+describe("rankHitsForIngest", () => {
+  it("drops IRRELEVANT and VIDEO unless allowed, prefers PERSON/DOCUMENT", () => {
+    const hits = [
+      { url: "https://youtube.com/watch?v=1", title: "talk", snippet: "", provider: "x", rank: 1 },
+      { url: "https://spam.example/x", title: "buy now", snippet: "casino", provider: "x", rank: 2 },
+      { url: "https://x.ru/a.pdf", title: "отчёт", snippet: "", provider: "x", rank: 3 },
+      { url: "https://conf.ru/s", title: "спикер Юлия", snippet: "директор", provider: "x", rank: 4 },
+    ];
+    const r = rankHitsForIngest(hits);
+    assert.equal(r.keep.some((c) => c.kind === "VIDEO"), false);
+    assert.equal(r.keep.some((c) => c.kind === "IRRELEVANT"), false);
+    assert.ok(r.keep[0].kind === "PERSON" || r.keep[0].kind === "DOCUMENT");
+    const withVideo = rankHitsForIngest(hits, { allowVideo: true });
+    assert.ok(withVideo.keep.some((c) => c.kind === "VIDEO"));
   });
 });
 

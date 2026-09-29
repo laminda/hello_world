@@ -414,6 +414,11 @@ ensureColumn("sources", "catalog_id", "TEXT");
 ensureColumn("sources", "reliability", "REAL");
 ensureColumn("search_queries", "source_id", "TEXT");
 ensureColumn("search_queries", "target_type", "TEXT");
+ensureColumn("search_queries", "error_class", "TEXT");
+ensureColumn("search_queries", "hits_count", "INTEGER DEFAULT 0");
+ensureColumn("search_queries", "ingested", "INTEGER DEFAULT 0");
+ensureColumn("search_queries", "facts_delta", "INTEGER DEFAULT 0");
+ensureColumn("search_queries", "candidates_delta", "INTEGER DEFAULT 0");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS tool_calls (
@@ -454,7 +459,32 @@ CREATE TABLE IF NOT EXISTS person_candidates (
   updated_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cand_inv ON person_candidates(investigation_id);
+
+CREATE TABLE IF NOT EXISTS search_funnel (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  investigation_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  tool TEXT,
+  query TEXT,
+  engine TEXT,
+  error_class TEXT,
+  hits INTEGER DEFAULT 0,
+  classified_json TEXT,
+  ingested INTEGER DEFAULT 0,
+  skipped INTEGER DEFAULT 0,
+  facts_delta INTEGER DEFAULT 0,
+  candidates_delta INTEGER DEFAULT 0,
+  duration_ms INTEGER,
+  reason TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_funnel_inv ON search_funnel(investigation_id);
 `);
+
+ensureColumn("tool_calls", "error_class", "TEXT");
+ensureColumn("tool_calls", "facts_delta", "INTEGER DEFAULT 0");
+ensureColumn("tool_calls", "candidates_delta", "INTEGER DEFAULT 0");
+ensureColumn("tool_calls", "ingested", "INTEGER DEFAULT 0");
+ensureColumn("tool_calls", "funnel_json", "TEXT");
 
 export function nowIso() {
   return new Date().toISOString();
