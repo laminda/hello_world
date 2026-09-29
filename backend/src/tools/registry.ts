@@ -1,5 +1,6 @@
 import { all, get, nowIso, run } from "../db.js";
 import { isToolEnabled } from "../settings.js";
+import { googleCreds, yandexCreds } from "../search.js";
 import type { InvestigationInput } from "../types.js";
 import { compileDorks } from "./dorks.js";
 import { llmStatus } from "./llm-client.js";
@@ -45,6 +46,8 @@ const SOURCE_TO_TOOL: Record<string, string> = {
   documents: "filetype_search",
   archive: "wayback_cdx",
   github: "github_search",
+  google: "google_search",
+  yandex: "yandex_search",
 };
 
 const modules: ToolModule[] = METHODOLOGIES.flatMap((m) => m.tools);
@@ -210,6 +213,12 @@ export function planNextTool(opts: {
   }
 
   if (name) {
+    if (googleCreds().configured) {
+      add("google_search", { query: qCore || `${qName} ${qOrg}`.trim() }, "Google CSE official API", 0.94);
+    }
+    if (yandexCreds().configured) {
+      add("yandex_search", { query: qCore || `${qName} ${qOrg}`.trim() }, "Yandex XML official API", 0.935);
+    }
     add("web_search", { query: `${qName} ${qOrg}`.trim() }, "surface discovery", 0.68);
     add("multi_engine_search", { query: `${qName} ${qOrg}`.trim() }, "fallback engines if DDG empty/tls", 0.66);
     add("wikipedia_search", { query: name }, "encyclopedic identity", ceo ? 0.88 : 0.35);

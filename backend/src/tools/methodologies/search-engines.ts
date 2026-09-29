@@ -3,9 +3,11 @@ import {
   searchBraveOutcome,
   searchDdgLiteOutcome,
   searchDuckDuckGoOutcome,
+  searchGoogleOutcome,
   searchMojeekOutcome,
   searchStartpageOutcome,
   searchWeb,
+  searchYandexOutcome,
   toToolResult,
 } from "../../search.js";
 import { fail, type Methodology, type ToolModule } from "../types.js";
@@ -14,7 +16,8 @@ function engine(
   name: string,
   description: string,
   when: string,
-  run: (q: string) => Promise<ReturnType<typeof toToolResult>>
+  run: (q: string) => Promise<ReturnType<typeof toToolResult>>,
+  legal = "Public HTML search page. No login, no people-search DB, no paywall bypass."
 ): ToolModule {
   return {
     meta: {
@@ -23,7 +26,7 @@ function engine(
       family: "search",
       description,
       parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-      legal: "Public HTML search page. No login, no people-search DB, no paywall bypass.",
+      legal,
       cost: 0.16,
       when,
     },
@@ -39,7 +42,7 @@ export const methodology: Methodology = {
   id: "search-engines",
   title: "Public search engines",
   description:
-    "Несколько открытых HTML-движков. tls/empty ≠ успех. web_search пробует их по очереди.",
+    "Официальные Google CSE / Yandex XML (если ключи в settings) и открытые HTML-движки. tls/empty/config ≠ успех.",
   version: "1.0",
   tools: [
     engine("ddg_search", "DuckDuckGo HTML.", "default open web", async (q) =>
@@ -61,8 +64,22 @@ export const methodology: Methodology = {
       toToolResult(await searchStartpageOutcome(q), "startpage hits")
     ),
     engine(
+      "google_search",
+      "Google Programmable Search (Custom Search JSON API). Requires API key + CX. Official API, public snippets.",
+      "when google_api_key and google_cx are set",
+      async (q) => toToolResult(await searchGoogleOutcome(q), "google hits"),
+      "Official Google Custom Search JSON API. Public snippets only. No login scrape, no paywall bypass."
+    ),
+    engine(
+      "yandex_search",
+      "Yandex Search XML API. Requires user + key. Official API, public snippets. No login scrape.",
+      "when yandex_user and yandex_api_key are set",
+      async (q) => toToolResult(await searchYandexOutcome(q), "yandex hits"),
+      "Official Yandex Search XML API. Public snippets only. No login scrape, no paywall bypass."
+    ),
+    engine(
       "multi_engine_search",
-      "Try DDG → Brave → Bing → Mojeek → DDG Lite until hits. Honest fail if all empty/tls.",
+      "Google/Yandex (if keyed) then DDG → Brave → Bing → Mojeek → DDG Lite. Honest fail if all empty/tls.",
       "when a single engine failed",
       async (q) => toToolResult(await searchWeb(q), "multi-engine hits")
     ),

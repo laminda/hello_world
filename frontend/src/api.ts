@@ -58,10 +58,15 @@ export async function getSettings() {
       llm_base_url: string;
       llm_model: string;
       llm_api_key_set: boolean;
+      google_api_key_set: boolean;
+      google_cx: string;
+      yandex_user: string;
+      yandex_api_key_set: boolean;
       disabled_tools: string[];
       disabled_modules: string[];
     };
     llm: { configured: boolean; model: string | null; base_host: string | null };
+    search_apis?: { google: { configured: boolean }; yandex: { configured: boolean } };
   }>;
 }
 

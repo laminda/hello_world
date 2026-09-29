@@ -13,6 +13,7 @@ import { identityConfidence, listCandidates } from "./person.js";
 import { investigationFunnel } from "./funnel.js";
 import type { InvestigationInput } from "./types.js";
 import { readSettings, writeSettings } from "./settings.js";
+import { searchApiStatus } from "./search.js";
 import { investigationGraph } from "./graph.js";
 import { knownUnknown, planQueries } from "./planner.js";
 import { classifyTarget, recommendNext, strategyState } from "./strategy.js";
@@ -387,11 +388,11 @@ app.get("/api/tools", async () => ({
   settings: readSettings(),
 }));
 
-app.get("/api/settings", async () => ({ settings: readSettings(), llm: llmStatus() }));
+app.get("/api/settings", async () => ({ settings: readSettings(), llm: llmStatus(), search_apis: searchApiStatus() }));
 
 app.put("/api/settings", async (req) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
-  return { settings: writeSettings(body), llm: llmStatus() };
+  return { settings: writeSettings(body), llm: llmStatus(), search_apis: searchApiStatus() };
 });
 
 app.patch("/api/catalog/:id", async (req, reply) => {

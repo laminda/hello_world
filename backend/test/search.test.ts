@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { mergeOutcomes, toToolResult, type SearchOutcome } from "../src/search.js";
+import {
+  googleCreds,
+  mergeOutcomes,
+  searchApiStatus,
+  searchGoogleOutcome,
+  searchYandexOutcome,
+  toToolResult,
+  yandexCreds,
+  type SearchOutcome,
+} from "../src/search.js";
+import { clearSetting } from "../src/settings.js";
 
 describe("toToolResult", () => {
   it("hits → ok", () => {
@@ -47,5 +57,35 @@ describe("mergeOutcomes", () => {
       { hits: [], engine: "b", error: "empty" },
     ]);
     assert.equal(m.error, "empty");
+  });
+});
+
+describe("official search APIs fail closed", () => {
+  it("unconfigured google/yandex → config, not fake hits", async () => {
+    delete process.env.SVOD_GOOGLE_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.SVOD_GOOGLE_CX;
+    delete process.env.GOOGLE_CSE_ID;
+    delete process.env.SVOD_YANDEX_USER;
+    delete process.env.YANDEX_USER;
+    delete process.env.SVOD_YANDEX_API_KEY;
+    delete process.env.YANDEX_API_KEY;
+    clearSetting("google_api_key");
+    clearSetting("google_cx");
+    clearSetting("yandex_user");
+    clearSetting("yandex_api_key");
+    assert.equal(googleCreds().configured, false);
+    assert.equal(yandexCreds().configured, false);
+    assert.equal(searchApiStatus().google.configured, false);
+    assert.equal(searchApiStatus().yandex.configured, false);
+    const g = await searchGoogleOutcome("test");
+    assert.equal(g.error, "config");
+    assert.equal(g.hits.length, 0);
+    const y = await searchYandexOutcome("test");
+    assert.equal(y.error, "config");
+    assert.equal(y.hits.length, 0);
+    const r = toToolResult(g, "google hits");
+    assert.equal(r.ok, false);
+    assert.equal(r.error, "config");
   });
 });

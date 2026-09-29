@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { getSetting } from "./settings.js";
 import type { SearchHit } from "./types.js";
 
 export const USER_AGENT =
@@ -14,7 +15,8 @@ export type SearchErrorClass =
   | "http"
   | "blocked"
   | "network"
-  | "parse";
+  | "parse"
+  | "config";
 
 export interface HttpResult {
   ok: boolean;
@@ -234,11 +236,105 @@ export async function searchStartpageOutcome(query: string): Promise<SearchOutco
   return htmlEngine("startpage", `https://www.startpage.com/sp/search?query=${encodeURIComponent(query)}`, parseStartpage);
 }
 
-/** Try public HTML engines until one returns hits. tls/empty are not disguised as success. */
+export function googleCreds() {
+  const key = getSetting("google_api_key") || process.env.SVOD_GOOGLE_API_KEY || process.env.GOOGLE_API_KEY || "";
+  const cx = getSetting("google_cx") || process.env.SVOD_GOOGLE_CX || process.env.GOOGLE_CSE_ID || "";
+  return { key, cx, configured: Boolean(key && cx) };
+}
+
+export function yandexCreds() {
+  const user = getSetting("yandex_user") || process.env.SVOD_YANDEX_USER || process.env.YANDEX_USER || "";
+  const key = getSetting("yandex_api_key") || process.env.SVOD_YANDEX_API_KEY || process.env.YANDEX_API_KEY || "";
+  return { user, key, configured: Boolean(user && key) };
+}
+
+export function searchApiStatus() {
+  const g = googleCreds();
+  const y = yandexCreds();
+  return {
+    google: { configured: g.configured, engine: "customsearch.googleapis.com" },
+    yandex: { configured: y.configured, engine: "yandex search/xml" },
+  };
+}
+
+export async function searchGoogleOutcome(query: string): Promise<SearchOutcome> {
+  const { key, cx, configured } = googleCreds();
+  if (!configured) {
+    return { hits: [], engine: "google", error: "config", detail: "google_api_key + google_cx not configured" };
+  }
+  const url = `https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(key)}&cx=${encodeURIComponent(
+    cx
+  )}&q=${encodeURIComponent(query)}&num=10&hl=ru`;
+  const res = await httpGet(url, { accept: "application/json" });
+  if (!res.ok) {
+    return { hits: [], engine: "google", error: res.error, status: res.status, detail: res.detail || res.text.slice(0, 180) };
+  }
+  try {
+    const json = JSON.parse(res.text) as {
+      error?: { message?: string; code?: number };
+      items?: Array<{ title?: string; link?: string; snippet?: string }>;
+    };
+    if (json.error?.message) {
+      return { hits: [], engine: "google", error: "http", status: json.error.code, detail: json.error.message };
+    }
+    const hits: SearchHit[] = (json.items || [])
+      .filter((it) => it.link && it.title)
+      .map((it, i) => ({
+        url: it.link!,
+        title: it.title!,
+        snippet: it.snippet || "",
+        provider: "google",
+        rank: i + 1,
+      }));
+    if (!hits.length) return { hits: [], engine: "google", error: "empty", status: res.status };
+    return { hits, engine: "google", error: "ok", status: res.status };
+  } catch (err) {
+    return { hits: [], engine: "google", error: "parse", status: res.status, detail: (err as Error).message };
+  }
+}
+
+export async function searchYandexOutcome(query: string): Promise<SearchOutcome> {
+  const { user, key, configured } = yandexCreds();
+  if (!configured) {
+    return { hits: [], engine: "yandex", error: "config", detail: "yandex_user + yandex_api_key not configured" };
+  }
+  const url =
+    `https://yandex.com/search/xml?user=${encodeURIComponent(user)}&key=${encodeURIComponent(key)}` +
+    `&query=${encodeURIComponent(query)}&l10n=ru&filter=none&maxpassages=2` +
+    `&groupby=attr%3Dd.mode%3Ddeep.groups-on-page%3D10.docs-in-group%3D1`;
+  const res = await httpGet(url, { accept: "application/xml,text/xml" });
+  if (!res.ok) {
+    return { hits: [], engine: "yandex", error: res.error, status: res.status, detail: res.detail || res.text.slice(0, 180) };
+  }
+  try {
+    const $ = cheerio.load(res.text, { xmlMode: true });
+    const err = $("error").first();
+    if (err.length) {
+      const code = err.attr("code") || "";
+      return { hits: [], engine: "yandex", error: "http", detail: `${code} ${err.text()}`.trim() };
+    }
+    const hits: SearchHit[] = [];
+    $("doc").each((i, el) => {
+      const url = $(el).find("url").first().text().trim();
+      const title = $(el).find("title").first().text().replace(/<[^>]+>/g, "").trim();
+      const snippet = $(el).find("passage").first().text().replace(/<[^>]+>/g, "").trim();
+      if (url && title) hits.push({ url, title, snippet, provider: "yandex", rank: i + 1 });
+    });
+    if (!hits.length) return { hits: [], engine: "yandex", error: "empty", status: res.status };
+    return { hits, engine: "yandex", error: "ok", status: res.status };
+  } catch (err) {
+    return { hits: [], engine: "yandex", error: "parse", status: res.status, detail: (err as Error).message };
+  }
+}
+
+/** Try official APIs (if keyed) then public HTML engines. tls/empty/config are not disguised as success. */
 export async function searchWeb(query: string): Promise<SearchOutcome> {
   const q = (query || "").trim();
   if (!q) return { hits: [], engine: "multi", error: "empty", detail: "empty query" };
-  const engines = [
+  const apis: Array<() => Promise<SearchOutcome>> = [];
+  if (googleCreds().configured) apis.push(() => searchGoogleOutcome(q));
+  if (yandexCreds().configured) apis.push(() => searchYandexOutcome(q));
+  const html: Array<() => Promise<SearchOutcome>> = [
     () => searchDuckDuckGoOutcome(q),
     () => searchBraveOutcome(q),
     () => searchBingOutcome(q),
@@ -247,13 +343,23 @@ export async function searchWeb(query: string): Promise<SearchOutcome> {
   ];
   const errors: SearchErrorClass[] = [];
   let last: SearchOutcome | undefined;
-  for (const run of engines) {
+  for (const run of apis) {
     const o = await run();
     last = o;
     if (o.hits.length) return o;
     errors.push(o.error);
-    if (o.error === "empty" && errors.filter((e) => e === "empty").length >= 2) {
-      return { hits: [], engine: o.engine, error: "empty", detail: "multiple engines empty" };
+  }
+  let htmlEmpty = 0;
+  for (const run of html) {
+    const o = await run();
+    last = o;
+    if (o.hits.length) return o;
+    errors.push(o.error);
+    if (o.error === "empty") {
+      htmlEmpty += 1;
+      if (htmlEmpty >= 2) {
+        return { hits: [], engine: o.engine, error: "empty", detail: "multiple engines empty" };
+      }
     }
   }
   if (errors.includes("empty")) return { hits: [], engine: last?.engine || "multi", error: "empty" };

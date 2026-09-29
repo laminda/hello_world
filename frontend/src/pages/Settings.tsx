@@ -9,6 +9,12 @@ export default function Settings() {
     llm_model: "gpt-4o-mini",
     llm_api_key: "",
     llm_api_key_set: false,
+    google_api_key: "",
+    google_api_key_set: false,
+    google_cx: "",
+    yandex_user: "",
+    yandex_api_key: "",
+    yandex_api_key_set: false,
     disabled_tools: [] as string[],
     disabled_modules: [] as string[],
   });
@@ -16,6 +22,9 @@ export default function Settings() {
   const [modules, setModules] = useState<Array<{ id: string; title: string }>>([]);
   const [msg, setMsg] = useState("");
   const [llm, setLlm] = useState<{ configured: boolean; model: string | null; base_host: string | null } | null>(null);
+  const [searchApis, setSearchApis] = useState<{ google: { configured: boolean }; yandex: { configured: boolean } } | null>(
+    null
+  );
 
   const load = () => {
     getSettings().then((d) => {
@@ -23,8 +32,11 @@ export default function Settings() {
         ...form,
         ...d.settings,
         llm_api_key: "",
+        google_api_key: "",
+        yandex_api_key: "",
       });
       setLlm(d.llm);
+      if (d.search_apis) setSearchApis(d.search_apis);
     });
     getTools().then((d) => {
       setTools(d.tools || []);
@@ -41,12 +53,27 @@ export default function Settings() {
       llm_base_url: form.llm_base_url,
       llm_model: form.llm_model,
       llm_api_key: form.llm_api_key,
+      google_api_key: form.google_api_key,
+      google_cx: form.google_cx,
+      yandex_user: form.yandex_user,
+      yandex_api_key: form.yandex_api_key,
       disabled_tools: form.disabled_tools,
       disabled_modules: form.disabled_modules,
     });
     setMsg("Сохранено");
     setLlm(r.llm);
-    setForm({ ...form, llm_api_key: "", llm_api_key_set: r.settings.llm_api_key_set });
+    if (r.search_apis) setSearchApis(r.search_apis);
+    setForm({
+      ...form,
+      llm_api_key: "",
+      llm_api_key_set: r.settings.llm_api_key_set,
+      google_api_key: "",
+      google_api_key_set: r.settings.google_api_key_set,
+      google_cx: r.settings.google_cx,
+      yandex_user: r.settings.yandex_user,
+      yandex_api_key: "",
+      yandex_api_key_set: r.settings.yandex_api_key_set,
+    });
   };
 
   const toggle = (list: string[], name: string) =>
@@ -98,6 +125,44 @@ export default function Settings() {
             onChange={(e) => setForm({ ...form, llm_api_key: e.target.value })}
           />
         </label>
+        <label>
+          Google CSE CX (Search Engine ID)
+          <input
+            placeholder="cx…"
+            value={form.google_cx}
+            onChange={(e) => setForm({ ...form, google_cx: e.target.value })}
+          />
+        </label>
+        <label>
+          Google API key {form.google_api_key_set ? <span className="badge st-SUPPORTED">set</span> : <span className="badge st-HYPOTHESIS">empty</span>}
+          <input
+            type="password"
+            placeholder={form.google_api_key_set ? "••••  (пустое = не менять)" : "AIza… Custom Search JSON API"}
+            value={form.google_api_key}
+            onChange={(e) => setForm({ ...form, google_api_key: e.target.value })}
+          />
+        </label>
+        <label>
+          Yandex user
+          <input
+            placeholder="логин XML API"
+            value={form.yandex_user}
+            onChange={(e) => setForm({ ...form, yandex_user: e.target.value })}
+          />
+        </label>
+        <label>
+          Yandex API key {form.yandex_api_key_set ? <span className="badge st-SUPPORTED">set</span> : <span className="badge st-HYPOTHESIS">empty</span>}
+          <input
+            type="password"
+            placeholder={form.yandex_api_key_set ? "••••  (пустое = не менять)" : "ключ Yandex Search XML"}
+            value={form.yandex_api_key}
+            onChange={(e) => setForm({ ...form, yandex_api_key: e.target.value })}
+          />
+        </label>
+        <p className="wide legal">
+          Google: Programmable Search JSON API (ключ + CX). Yandex: официальный Search XML (user + key). Сниппеты
+          публичного индекса, без обхода логина и paywall. Ключи только на этом хосте.
+        </p>
         <div className="wide">
           <div className="kicker">Модули (выключить = агент не вызывает)</div>
           <div className="chip-row">
@@ -132,6 +197,7 @@ export default function Settings() {
         <div className="actions">
           <span className="small muted">
             LLM {llm?.configured ? `on · ${llm.model} @ ${llm.base_host}` : "off"}
+            {searchApis ? ` · Google ${searchApis.google.configured ? "on" : "off"} · Yandex ${searchApis.yandex.configured ? "on" : "off"}` : ""}
             {msg ? ` · ${msg}` : ""}
           </span>
           <button className="btn primary">Сохранить</button>

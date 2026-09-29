@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { executeTool, listMethodologies, listTools, llmStatus, planNextTool } from "../src/tools/registry.js";
 import { clearSetting } from "../src/settings.js";
+import { listCatalog, seedCatalog } from "../src/registry.js";
 
 describe("tool catalog", () => {
   it("registers methodologies and unique tool names with schemas", () => {
@@ -28,6 +29,8 @@ describe("tool catalog", () => {
       "github_search",
       "brave_search",
       "multi_engine_search",
+      "google_search",
+      "yandex_search",
       "hh_public_search",
     ]) {
       assert.ok(names.includes(t), `missing ${t}`);
@@ -37,6 +40,16 @@ describe("tool catalog", () => {
       assert.ok(t.legal.length > 8);
       assert.ok(t.module);
     }
+  });
+
+  it("source catalog lists official Google/Yandex APIs", () => {
+    seedCatalog();
+    const ids = listCatalog().map((c) => c.source_id);
+    assert.ok(ids.includes("google"));
+    assert.ok(ids.includes("yandex"));
+    const g = listCatalog().find((c) => c.source_id === "google")!;
+    assert.equal(g.plugin, "google_search");
+    assert.equal(g.api_available, 1);
   });
 
   it("unknown tool fails closed", async () => {
@@ -103,6 +116,28 @@ describe("local tools (no network)", () => {
     const r = await executeTool("llm_classify_target", { name: "X" });
     assert.equal(r.ok, false);
     assert.match(r.error || r.summary, /not configured/i);
+  });
+
+  it("google_search / yandex_search fail closed without keys", async () => {
+    delete process.env.SVOD_GOOGLE_API_KEY;
+    delete process.env.GOOGLE_API_KEY;
+    delete process.env.SVOD_GOOGLE_CX;
+    delete process.env.GOOGLE_CSE_ID;
+    delete process.env.SVOD_YANDEX_USER;
+    delete process.env.YANDEX_USER;
+    delete process.env.SVOD_YANDEX_API_KEY;
+    delete process.env.YANDEX_API_KEY;
+    clearSetting("google_api_key");
+    clearSetting("google_cx");
+    clearSetting("yandex_user");
+    clearSetting("yandex_api_key");
+    const g = await executeTool("google_search", { query: "Юлия Лагутина Магнит" });
+    assert.equal(g.ok, false);
+    assert.equal(g.error, "config");
+    assert.equal((g.hits || []).length, 0);
+    const y = await executeTool("yandex_search", { query: "Юлия Лагутина Магнит" });
+    assert.equal(y.ok, false);
+    assert.equal(y.error, "config");
   });
 });
 
