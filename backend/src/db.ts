@@ -430,6 +430,12 @@ CREATE TABLE IF NOT EXISTS tool_calls (
   error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_tools_inv ON tool_calls(investigation_id);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT
+);
 `);
 
 export function nowIso() {

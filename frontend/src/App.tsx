@@ -4,6 +4,7 @@ import NewInvestigation from "./pages/NewInvestigation";
 import Investigation from "./pages/Investigation";
 import SourcesAdmin from "./pages/SourcesAdmin";
 import Tools from "./pages/Tools";
+import Settings from "./pages/Settings";
 
 export default function App() {
   const loc = useLocation();
@@ -27,6 +28,9 @@ export default function App() {
           <Link to="/tools">
             <button className={loc.pathname === "/tools" ? "on" : ""}>Tools</button>
           </Link>
+          <Link to="/settings">
+            <button className={loc.pathname === "/settings" ? "on" : ""}>Настройки</button>
+          </Link>
         </nav>
         <div className="meta">
           <span>PUBLIC SOURCES ONLY</span>
@@ -38,6 +42,7 @@ export default function App() {
         <Route path="/new" element={<NewInvestigation />} />
         <Route path="/catalog" element={<SourcesAdmin />} />
         <Route path="/tools" element={<Tools />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="/inv/:id" element={<Investigation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

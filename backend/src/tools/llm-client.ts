@@ -3,22 +3,36 @@
  * classify, interpret public text, propose strategy, suggest dorks, disambiguate.
  * Never invents sources. Disabled unless API key is set.
  */
+import { readSettings } from "../settings.js";
 export interface LlmStatus {
   configured: boolean;
   model: string | null;
   base_host: string | null;
 }
 
+function live() {
+  try {
+    return readSettings(true);
+  } catch {
+    return null;
+  }
+}
+
 function baseUrl() {
-  return (process.env.SVOD_LLM_BASE_URL || process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  return (
+    live()?.llm_base_url ||
+    process.env.SVOD_LLM_BASE_URL ||
+    process.env.OPENAI_BASE_URL ||
+    "https://api.openai.com/v1"
+  ).replace(/\/$/, "");
 }
 
 function apiKey() {
-  return process.env.SVOD_LLM_API_KEY || process.env.OPENAI_API_KEY || "";
+  return live()?.llm_api_key || process.env.SVOD_LLM_API_KEY || process.env.OPENAI_API_KEY || "";
 }
 
 function model() {
-  return process.env.SVOD_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
+  return live()?.llm_model || process.env.SVOD_LLM_MODEL || process.env.OPENAI_MODEL || "gpt-4o-mini";
 }
 
 export function llmStatus(): LlmStatus {

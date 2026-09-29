@@ -129,6 +129,18 @@ export interface Workspace {
     error?: string;
   }>;
   tools?: Array<{ name: string; family: string; description: string; legal: string; when: string }>;
+  metrics?: {
+    pct: number;
+    facts: number;
+    observed: number;
+    sources: number;
+    independent: number;
+    tools: number;
+    toolsOk: number;
+    queries: number;
+    conflicts: number;
+    checks: Array<{ id: string; label: string; ok: boolean }>;
+  };
   queries: Array<{
     id: string;
     query: string;

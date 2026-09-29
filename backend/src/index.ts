@@ -8,10 +8,12 @@ import { seedDemo } from "./seed.js";
 import { seedStrategyLayer } from "./seed-strategy.js";
 import { bus, ingestManual, runInvestigation, runOneTool, stopInvestigation } from "./agent.js";
 import { listMethodologies, listToolCalls, listTools, llmStatus } from "./osint-tools.js";
+import { investigationMetrics } from "./metrics.js";
+import { readSettings, writeSettings } from "./settings.js";
 import { investigationGraph } from "./graph.js";
 import { knownUnknown, planQueries } from "./planner.js";
 import { classifyTarget, recommendNext, strategyState } from "./strategy.js";
-import { listCatalog } from "./registry.js";
+import { listCatalog, setCatalogEnabled } from "./registry.js";
 import { createConnector, listConnectors } from "./connectors.js";
 import { listInferences } from "./inference.js";
 import { pivotGraph } from "./pivot.js";
@@ -231,6 +233,7 @@ app.get("/api/investigations/:id/workspace", async (req, reply) => {
     evidenceSummary,
     toolCalls: listToolCalls(id),
     tools: listTools(),
+    metrics: investigationMetrics(id),
   };
 });
 
@@ -376,7 +379,23 @@ app.get("/api/tools", async () => ({
   tools: listTools(),
   methodologies: listMethodologies(),
   llm: llmStatus(),
+  settings: readSettings(),
 }));
+
+app.get("/api/settings", async () => ({ settings: readSettings(), llm: llmStatus() }));
+
+app.put("/api/settings", async (req) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  return { settings: writeSettings(body), llm: llmStatus() };
+});
+
+app.patch("/api/catalog/:id", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const body = (req.body ?? {}) as { enabled?: boolean };
+  const row = setCatalogEnabled(id, Boolean(body.enabled));
+  if (!row) return reply.code(404).send({ error: "not found" });
+  return row;
+});
 
 app.post("/api/investigations/:id/tools", async (req, reply) => {
   const { id } = req.params as { id: string };

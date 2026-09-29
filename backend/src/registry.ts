@@ -386,6 +386,11 @@ export function getCatalog(id: string): CatalogEntry | undefined {
   return get<CatalogEntry>(`SELECT * FROM source_catalog WHERE source_id = ?`, id);
 }
 
+export function setCatalogEnabled(id: string, enabled: boolean) {
+  run(`UPDATE source_catalog SET enabled = ? WHERE source_id = ?`, enabled ? 1 : 0, id);
+  return getCatalog(id);
+}
+
 export function relevanceFor(entry: CatalogEntry, target: TargetType): number {
   try {
     const rel = JSON.parse(entry.relevance_json || "{}") as Record<string, number>;

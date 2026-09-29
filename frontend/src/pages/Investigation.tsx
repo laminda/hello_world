@@ -17,6 +17,7 @@ const TABS = [
   "graph",
   "raw",
   "audit",
+  "history",
   "tools",
 ] as const;
 type Tab = (typeof TABS)[number];
@@ -24,6 +25,43 @@ type Tab = (typeof TABS)[number];
 function Badge({ status }: { status: string }) {
   return <span className={`badge st-${status}`}>{status}</span>;
 }
+
+function ProgressStrip({ ws }: { ws: Workspace }) {
+  const m = (ws as Workspace & { metrics?: Metrics }).metrics;
+  const running = ws.investigation.status === "running";
+  const pct = m?.pct ?? 0;
+  return (
+    <div className="progress-strip">
+      <div className="meter lg">
+        <i style={{ width: `${pct}%` }} className={running ? "pulse" : ""} />
+      </div>
+      <span className="mono small">
+        {pct}% · facts {m?.observed ?? 0}/{m?.facts ?? ws.facts.length} · src {m?.independent ?? 0}/{m?.sources ?? ws.sources.length} ·
+        tools {m?.toolsOk ?? 0}/{m?.tools ?? 0} · queries {m?.queries ?? ws.queries.length} · conflicts {m?.conflicts ?? 0}
+      </span>
+      <div className="chip-row">
+        {(m?.checks || []).map((c) => (
+          <span key={c.id} className={`chip ${c.ok ? "on" : "off"}`}>
+            {c.ok ? "✓" : "○"} {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+type Metrics = {
+  pct: number;
+  facts: number;
+  observed: number;
+  sources: number;
+  independent: number;
+  tools: number;
+  toolsOk: number;
+  queries: number;
+  conflicts: number;
+  checks: Array<{ id: string; label: string; ok: boolean }>;
+};
 
 function fileUrl(img: Workspace["images"][number]) {
   if (!img.storage_path) return "";
@@ -90,8 +128,25 @@ export default function Investigation() {
         <button className="btn ghost" onClick={() => stopInvestigation(ws.investigation.id)}>
           Pause
         </button>
+        <button
+          className="btn ghost"
+          onClick={() => {
+            const blob = new Blob([JSON.stringify(ws, null, 2)], { type: "application/json" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `${ws.investigation.id}.json`;
+            a.click();
+          }}
+        >
+          Export JSON
+        </button>
+        <a className="btn ghost" href={`/api/investigations/${ws.investigation.id}/report`} target="_blank" rel="noreferrer">
+          Report
+        </a>
       </div>
+      <ProgressStrip ws={ws} />
 
+      <div className="ws-body">
       {tab === "overview" && (
         <div className="overview-grid">
           <div className="ws-main">
@@ -196,7 +251,9 @@ export default function Investigation() {
       )}
       {tab === "raw" && <RawTab ws={ws} />}
       {tab === "audit" && <AuditTab ws={ws} />}
+      {tab === "history" && <HistoryTab ws={ws} />}
       {tab === "tools" && <ToolsTab ws={ws} onRun={reload} />}
+      </div>
 
       {fact && (
         <aside className="drawer">
@@ -475,8 +532,25 @@ function HypothesesTab({ ws }: { ws: Workspace }) {
 }
 
 function SourcesTab({ ws }: { ws: Workspace }) {
+  const [q, setQ] = useState("");
+  const [type, setType] = useState("all");
+  const types = ["all", ...new Set(ws.sources.map((s) => s.source_type))];
+  const rows = ws.sources.filter((s) => {
+    if (type !== "all" && s.source_type !== type) return false;
+    const hay = `${s.title || ""} ${s.url || ""} ${s.snippet || ""}`.toLowerCase();
+    return !q || hay.includes(q.toLowerCase());
+  });
   return (
     <div style={{ overflow: "auto" }}>
+      <div className="filter-bar">
+        <input className="inp" placeholder="фильтр источников" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          {types.map((t) => (
+            <option key={t}>{t}</option>
+          ))}
+        </select>
+        <span className="small muted">{rows.length}/{ws.sources.length}</span>
+      </div>
       <table className="table">
         <thead>
           <tr>
@@ -488,7 +562,7 @@ function SourcesTab({ ws }: { ws: Workspace }) {
           </tr>
         </thead>
         <tbody>
-          {ws.sources.map((s) => (
+          {rows.map((s) => (
             <tr key={s.id}>
               <td className="mono small">{s.id}</td>
               <td>{s.source_type}</td>
@@ -574,8 +648,24 @@ function ImagesTab({ ws, onOpen }: { ws: Workspace; onOpen: (id: string) => void
 }
 
 function FactsTab({ ws, onOpen }: { ws: Workspace; onOpen: (id: string) => void }) {
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
+  const rows = ws.facts.filter((f) => {
+    if (status !== "all" && f.status !== status) return false;
+    const hay = `${f.predicate} ${f.value} ${f.extract || ""}`.toLowerCase();
+    return !q || hay.includes(q.toLowerCase());
+  });
   return (
     <div style={{ overflow: "auto" }}>
+      <div className="filter-bar">
+        <input className="inp" placeholder="фильтр фактов" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          {["all", "OBSERVED", "HYPOTHESIS", "SUPPORTED", "CONFIRMED", "CONFLICT", "UNVERIFIED", "REJECTED"].map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+        <span className="small muted">{rows.length}/{ws.facts.length}</span>
+      </div>
       <table className="table">
         <thead>
           <tr>
@@ -587,7 +677,7 @@ function FactsTab({ ws, onOpen }: { ws: Workspace; onOpen: (id: string) => void 
           </tr>
         </thead>
         <tbody>
-          {ws.facts.map((f) => (
+          {rows.map((f) => (
             <tr key={f.id} onClick={() => onOpen(f.id)} style={{ cursor: "pointer" }}>
               <td className="mono small">{f.id}</td>
               <td>{f.predicate}</td>
@@ -651,6 +741,73 @@ function RawTab({ ws }: { ws: Workspace }) {
         <div className="kicker">LLM не скрывает исходный материал</div>
         <pre className="pre">{body}</pre>
       </div>
+    </div>
+  );
+}
+
+function HistoryTab({ ws }: { ws: Workspace }) {
+  const [q, setQ] = useState("");
+  const calls = ws.toolCalls || [];
+  const queries = ws.queries.filter((x) => !q || `${x.query} ${x.reason || ""}`.toLowerCase().includes(q.toLowerCase()));
+  const tools = calls.filter(
+    (c) => !q || `${c.tool} ${c.args_json || ""} ${c.result_summary || ""}`.toLowerCase().includes(q.toLowerCase())
+  );
+  return (
+    <div style={{ overflow: "auto" }}>
+      <div className="filter-bar">
+        <input className="inp" placeholder="поиск по истории запросов и tools" value={q} onChange={(e) => setQ(e.target.value)} />
+        <span className="small muted">
+          queries {queries.length} · tools {tools.length}
+        </span>
+      </div>
+      <div className="kicker">Search queries</div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Query</th>
+            <th>Class</th>
+            <th>Engine</th>
+            <th>Reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          {queries.map((x) => (
+            <tr key={x.id}>
+              <td className="mono small">{x.executed_at.slice(11, 19)}</td>
+              <td className="mono small">{x.query}</td>
+              <td>{x.query_class}</td>
+              <td className="small">{x.engine}</td>
+              <td className="small muted">{x.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="kicker" style={{ marginTop: 16 }}>
+        Tool calls
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Tool</th>
+            <th>Args</th>
+            <th>Ok</th>
+            <th>Summary</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tools.map((c) => (
+            <tr key={c.id}>
+              <td className="mono small">{c.ts.slice(11, 19)}</td>
+              <td className="mono small">{c.tool}</td>
+              <td className="small">{(c.args_json || "").slice(0, 100)}</td>
+              <td>{c.ok ? "✓" : "✗"}</td>
+              <td className="small">{c.result_summary || c.error}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

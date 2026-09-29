@@ -49,6 +49,45 @@ export async function ingestManual(id: string, body: Record<string, string>) {
   return r.json();
 }
 
+export async function getSettings() {
+  const r = await fetch("/api/settings");
+  return r.json() as Promise<{
+    settings: {
+      max_iterations: number;
+      respect_robots: boolean;
+      llm_base_url: string;
+      llm_model: string;
+      llm_api_key_set: boolean;
+      disabled_tools: string[];
+      disabled_modules: string[];
+    };
+    llm: { configured: boolean; model: string | null; base_host: string | null };
+  }>;
+}
+
+export async function putSettings(body: Record<string, unknown>) {
+  const r = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+export async function getTools() {
+  const r = await fetch("/api/tools");
+  return r.json();
+}
+
+export async function setCatalogEnabled(id: string, enabled: boolean) {
+  const r = await fetch(`/api/catalog/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  return r.json();
+}
+
 export async function getCatalog() {
   const r = await fetch("/api/catalog");
   return r.json() as Promise<{ catalog: CatalogRow[]; connectors: ConnectorRow[] }>;

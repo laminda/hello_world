@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { createConnector, getCatalog, getPresets, type CatalogRow } from "../api";
+import { createConnector, getCatalog, getPresets, setCatalogEnabled, type CatalogRow } from "../api";
 
 const TARGETS = ["public_top_manager", "public_person", "middle_manager", "low_level_employee"];
 
@@ -71,6 +71,7 @@ export default function SourcesAdmin() {
                 <th key={t}>{t.replaceAll("_", " ")}</th>
               ))}
               <th>Legal</th>
+              <th>On</th>
             </tr>
           </thead>
           <tbody>
@@ -90,6 +91,17 @@ export default function SourcesAdmin() {
                     </td>
                   ))}
                   <td className="small muted">{c.legal_note}</td>
+                  <td>
+                    <button
+                      className={`btn ${c.enabled ? "" : "ghost"}`}
+                      onClick={async () => {
+                        await setCatalogEnabled(c.source_id, !c.enabled);
+                        load();
+                      }}
+                    >
+                      {c.enabled ? "on" : "off"}
+                    </button>
+                  </td>
                 </tr>
               );
             })}

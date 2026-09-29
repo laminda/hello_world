@@ -1,4 +1,5 @@
 import { all, get, nowIso, run } from "../db.js";
+import { isToolEnabled } from "../settings.js";
 import type { InvestigationInput } from "../types.js";
 import { compileDorks } from "./dorks.js";
 import { llmStatus } from "./llm-client.js";
@@ -51,6 +52,9 @@ export function listTools() {
 export async function executeTool(name: string, args: Record<string, string>): Promise<ToolResult> {
   const tool = byName[name];
   if (!tool) return fail(`unknown tool ${name}`);
+  if (!isToolEnabled(name, tool.meta.module)) {
+    return fail(`tool ${name} disabled in settings`);
+  }
   try {
     return await tool.execute(args || {});
   } catch (err) {
@@ -73,6 +77,8 @@ export function planNextTool(opts: {
   const add = (tool: string, args: Record<string, string>, reason: string, score: number) => {
     const key = `${tool}:${JSON.stringify(args)}`;
     if (opts.used.includes(key)) return;
+    const mod = byName[tool]?.meta.module;
+    if (!isToolEnabled(tool, mod)) return;
     candidates.push({ tool, args, reason, score });
   };
 

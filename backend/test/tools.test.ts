@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { executeTool, listMethodologies, listTools, llmStatus, planNextTool } from "../src/tools/registry.js";
+import { clearSetting } from "../src/settings.js";
 
 describe("tool catalog", () => {
   it("registers methodologies and unique tool names with schemas", () => {
@@ -79,6 +80,7 @@ describe("local tools (no network)", () => {
   it("llm tools fail closed when API key missing", async () => {
     delete process.env.SVOD_LLM_API_KEY;
     delete process.env.OPENAI_API_KEY;
+    clearSetting("llm_api_key");
     assert.equal(llmStatus().configured, false);
     const r = await executeTool("llm_classify_target", { name: "X" });
     assert.equal(r.ok, false);
@@ -87,6 +89,7 @@ describe("local tools (no network)", () => {
 });
 
 describe("planNextTool", () => {
+  clearSetting("llm_api_key");
   const input = { name: "Юлия", last_name: "Лагутина", organization: "Магнит" };
 
   it("starts with compile_dorks when LLM is off", () => {

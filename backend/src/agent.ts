@@ -5,6 +5,7 @@ import type { SearchHit } from "./types.js";
 import { classifyTarget, feedback, persistStrategyRun, recommendNext } from "./strategy.js";
 import { executeTool, logToolCall, planNextTool } from "./osint-tools.js";
 import type { ToolCall } from "./osint-tools.js";
+import { getSettingNumber } from "./settings.js";
 import { inferFromInput, inferFromText } from "./inference.js";
 import { buildPivots } from "./pivot.js";
 import { detectCopies } from "./independence.js";
@@ -438,7 +439,7 @@ export async function runInvestigation(investigationId: string) {
   let iteration = 0;
   const usedKeys: string[] = [];
   const suggested: ToolCall[] = [];
-  const maxIter = 8;
+  const maxIter = getSettingNumber("max_iterations", 8);
 
   try {
     while (iteration < maxIter && running.get(investigationId)) {

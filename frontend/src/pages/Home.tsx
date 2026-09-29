@@ -19,10 +19,22 @@ const PIPE = [
 
 export default function Home() {
   const [items, setItems] = useState<InvestigationListItem[]>([]);
+  const [q, setQ] = useState("");
+  const [status, setStatus] = useState("all");
   const nav = useNavigate();
   useEffect(() => {
     listInvestigations().then(setItems).catch(() => setItems([]));
   }, []);
+  const shown = items.filter((it) => {
+    if (status !== "all" && it.status !== status) return false;
+    const hay = `${it.id} ${it.title}`.toLowerCase();
+    return !q || hay.includes(q.toLowerCase());
+  });
+  const totals = {
+    facts: items.reduce((s, i) => s + i.facts, 0),
+    sources: items.reduce((s, i) => s + i.sources, 0),
+    conflicts: items.reduce((s, i) => s + i.conflicts, 0),
+  };
 
   return (
     <div className="page">
@@ -73,8 +85,21 @@ Final Report`}
       </div>
 
       <div className="kicker">Investigations</div>
+      <div className="filter-bar">
+        <input className="inp" placeholder="поиск по id / названию" value={q} onChange={(e) => setQ(e.target.value)} />
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          {["all", "draft", "running", "paused", "complete", "failed"].map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <span className="small muted">
+          {shown.length}/{items.length} · facts {totals.facts} · sources {totals.sources} · conflicts {totals.conflicts}
+        </span>
+      </div>
       <div className="inv-grid" style={{ marginTop: 12 }}>
-        {items.map((it) => (
+        {shown.map((it) => (
           <div key={it.id} className="card inv-card" onClick={() => nav(`/inv/${it.id}`)}>
             <div className="flex">
               <span className="mono small" style={{ color: "var(--gold)" }}>
