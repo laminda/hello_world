@@ -276,7 +276,144 @@ CREATE INDEX IF NOT EXISTS idx_facts_inv ON facts(investigation_id);
 CREATE INDEX IF NOT EXISTS idx_sources_inv ON sources(investigation_id);
 CREATE INDEX IF NOT EXISTS idx_entities_inv ON entities(investigation_id);
 CREATE INDEX IF NOT EXISTS idx_actions_inv ON investigation_actions(investigation_id);
+
+CREATE TABLE IF NOT EXISTS source_catalog (
+  source_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,
+  methods_json TEXT NOT NULL DEFAULT '[]',
+  api_available INTEGER NOT NULL DEFAULT 0,
+  auth_method TEXT DEFAULT 'none',
+  rate_limit TEXT,
+  cost REAL DEFAULT 0.15,
+  reliability REAL DEFAULT 0.7,
+  legal_note TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  plugin TEXT,
+  relevance_json TEXT NOT NULL DEFAULT '{}',
+  params_json TEXT NOT NULL DEFAULT '{}',
+  output_json TEXT NOT NULL DEFAULT '[]'
+);
+
+CREATE TABLE IF NOT EXISTS search_presets (
+  preset_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  sources_json TEXT NOT NULL,
+  strong_signals_json TEXT NOT NULL DEFAULT '[]',
+  weak_signals_json TEXT NOT NULL DEFAULT '[]',
+  stop_when TEXT
+);
+
+CREATE TABLE IF NOT EXISTS source_effectiveness (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_id TEXT NOT NULL,
+  target_type TEXT NOT NULL,
+  queries INTEGER DEFAULT 0,
+  successful_hits INTEGER DEFAULT 0,
+  useful_facts INTEGER DEFAULT 0,
+  unique_facts INTEGER DEFAULT 0,
+  false_positive_rate REAL DEFAULT 0,
+  time_cost REAL DEFAULT 0,
+  updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS identifiers (
+  id TEXT PRIMARY KEY,
+  investigation_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'medium',
+  status TEXT NOT NULL DEFAULT 'OBSERVED',
+  source TEXT,
+  confidence REAL DEFAULT 0.5,
+  note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS inferences (
+  id TEXT PRIMARY KEY,
+  investigation_id TEXT NOT NULL,
+  level INTEGER NOT NULL DEFAULT 2,
+  input_fact TEXT,
+  inference_json TEXT NOT NULL,
+  confidence REAL DEFAULT 0.4,
+  status TEXT NOT NULL DEFAULT 'HYPOTHESIS',
+  reason TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pivots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  investigation_id TEXT NOT NULL,
+  from_kind TEXT NOT NULL,
+  from_value TEXT NOT NULL,
+  to_kind TEXT NOT NULL,
+  to_value TEXT NOT NULL,
+  reason TEXT,
+  confidence REAL DEFAULT 0.4,
+  status TEXT DEFAULT 'OPEN'
+);
+
+CREATE TABLE IF NOT EXISTS connectors (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  api_url TEXT NOT NULL,
+  method TEXT NOT NULL DEFAULT 'GET',
+  auth_type TEXT DEFAULT 'none',
+  headers_json TEXT DEFAULT '{}',
+  request_template TEXT,
+  response_mapping_json TEXT DEFAULT '{}',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  legal_note TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_hints (
+  id TEXT PRIMARY KEY,
+  investigation_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  value TEXT NOT NULL,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'USER_HINT',
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS strategy_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  investigation_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  target_type TEXT,
+  preset_id TEXT,
+  recommendation_json TEXT,
+  selected_source TEXT,
+  score REAL
+);
 `);
+
+function ensureColumn(table: string, column: string, def: string) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+  } catch {
+    /* already exists */
+  }
+}
+
+ensureColumn("investigations", "target_type", "TEXT");
+ensureColumn("investigations", "preset_id", "TEXT");
+ensureColumn("facts", "temporal_relevance", "TEXT DEFAULT 'UNKNOWN'");
+ensureColumn("facts", "extraction_confidence", "REAL");
+ensureColumn("facts", "source_reliability", "REAL");
+ensureColumn("facts", "entity_match", "REAL");
+ensureColumn("facts", "independence_score", "REAL");
+ensureColumn("hypotheses", "hyp_type", "TEXT");
+ensureColumn("hypotheses", "level", "INTEGER DEFAULT 3");
+ensureColumn("hypotheses", "reason", "TEXT");
+ensureColumn("hypotheses", "supporting_json", "TEXT");
+ensureColumn("hypotheses", "contradicting_json", "TEXT");
+ensureColumn("hypotheses", "source_id", "TEXT");
+ensureColumn("sources", "catalog_id", "TEXT");
+ensureColumn("sources", "reliability", "REAL");
+ensureColumn("search_queries", "source_id", "TEXT");
+ensureColumn("search_queries", "target_type", "TEXT");
 
 export function nowIso() {
   return new Date().toISOString();

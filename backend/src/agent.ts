@@ -1,7 +1,11 @@
 import { EventEmitter } from "node:events";
 import { all, audit, get, logAction, nowIso, run } from "./db.js";
 import { nextActions, planQueries } from "./planner.js";
-import { searchAll, waybackCdx, type SearchHit } from "./search.js";
+import { searchAll, searchYouTube, waybackCdx, type SearchHit } from "./search.js";
+import { classifyTarget, feedback, persistStrategyRun, queriesForSource, recommendNext } from "./strategy.js";
+import { inferFromInput, inferFromText } from "./inference.js";
+import { buildPivots } from "./pivot.js";
+import { detectCopies } from "./independence.js";
 import { crawlSite, fetchPage, isPublicHttpUrl } from "./crawler.js";
 import {
   downloadPublicFile,
@@ -221,14 +225,16 @@ async function ingestHit(investigationId: string, hit: SearchHit, hintName?: str
     storage,
     text
   );
+  const combined = `${title}\n${hit.snippet}\n${text}`;
   const stats = ingestText({
     investigationId,
-    text: `${title}\n${hit.snippet}\n${text}`,
+    text: combined,
     sourceId,
     documentId: docId,
     hintName,
     url: hit.url,
   });
+  inferFromText(investigationId, combined, sourceId);
   emit(investigationId, {
     level: "extract",
     message: `Extracted ${stats.entities} entities, ${stats.facts} facts from ${page.title || hit.title}`,
@@ -405,15 +411,31 @@ export async function runInvestigation(investigationId: string) {
     });
   }
 
+  const profile = classifyTarget(input);
+  inferFromInput(investigationId, input);
+  buildPivots(investigationId, input);
+  const { scored } = recommendNext(profile, input, []);
+  persistStrategyRun(investigationId, profile, scored, scored[0]?.source_id);
+  emit(investigationId, {
+    level: "info",
+    message: `Profile ${profile.targetType} → preset ${profile.presetId}. ${profile.reasons[0] || ""}`,
+    data: { profile, topSources: scored.slice(0, 5) },
+  });
+  emit(investigationId, {
+    level: "graph",
+    message: `Source dispatcher ranked ${scored.length} providers. Next: ${scored[0]?.name} (score ${scored[0]?.score})`,
+  });
+
   const planned = planQueries(input);
   emit(investigationId, {
     level: "info",
-    message: `Search planner generated ${planned.length} strategies`,
+    message: `Search planner generated ${planned.length} query templates`,
     data: { queries: planned.slice(0, 8) },
   });
 
   let iteration = 0;
   const searched: string[] = [];
+  const usedSources: string[] = [];
   const maxIter = 6;
 
   try {
@@ -438,6 +460,8 @@ export async function runInvestigation(investigationId: string) {
         break;
       }
 
+      const { scored: ranked, next: nextSrc } = recommendNext(profile, input, usedSources);
+      persistStrategyRun(investigationId, profile, ranked, nextSrc?.source_id);
       const actions = nextActions(input, {
         sourceCount,
         factCount,
@@ -445,38 +469,55 @@ export async function runInvestigation(investigationId: string) {
         searched,
         iteration,
       });
-      const action = actions[0];
+      let action = actions[0];
+      if (nextSrc) {
+        const qs = queriesForSource(nextSrc.source_id, input).filter((q) => !searched.includes(q.query));
+        if (qs[0]) {
+          action = {
+            type: "search",
+            query: qs[0].query,
+            queryClass: qs[0].queryClass,
+            reason: `${nextSrc.name}: ${qs[0].reason} (score ${nextSrc.score})`,
+            provider: nextSrc.source_id,
+          };
+          usedSources.push(nextSrc.source_id);
+        }
+      }
       if (!action || action.type === "stop") {
-        emit(investigationId, { level: "info", message: "Planner has no higher-value actions" });
+        emit(investigationId, { level: "info", message: "Dispatcher has no higher-value sources" });
         break;
       }
 
       emit(investigationId, {
         level: "info",
         message: `Next action: ${action.type}${action.query ? ` · ${action.query}` : ""} — ${action.reason}`,
+        data: { source: action.provider, scorecard: nextSrc },
       });
 
       if (action.type === "search" && action.query) {
         const qidCount = get<{ c: number }>(`SELECT COUNT(*) as c FROM search_queries`)!.c;
         const qid = `Q-${String(qidCount + 1).padStart(6, "0")}`;
         run(
-          `INSERT INTO search_queries (id, investigation_id, query, engine, query_class, reason, executed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO search_queries (id, investigation_id, query, engine, query_class, reason, executed_at, source_id, target_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           qid,
           investigationId,
           action.query,
-          "multi",
+          action.provider || "multi",
           action.queryClass ?? null,
           action.reason,
-          nowIso()
+          nowIso(),
+          action.provider ?? null,
+          profile.targetType
         );
         searched.push(action.query);
         emit(investigationId, {
           level: "search",
-          message: `QUERY [${action.queryClass}] ${action.query}`,
+          message: `QUERY [${action.provider || action.queryClass}] ${action.query}`,
           data: { reason: action.reason },
         });
-        const hits = await searchAll(action.query);
+        const hits =
+          action.provider === "youtube" ? await searchYouTube(action.query) : await searchAll(action.query);
         for (const [i, hit] of hits.entries()) {
           run(
             `INSERT INTO search_results (query_id, url, title, snippet, provider, rank, selected, selection_reason)
@@ -584,11 +625,20 @@ export async function runInvestigation(investigationId: string) {
 
       resolveEntities(investigationId);
       detectContradictions(investigationId);
+      detectCopies(investigationId);
+      if (action.provider) {
+        const factsNow = get<{ c: number }>(
+          `SELECT COUNT(*) as c FROM facts WHERE investigation_id = ?`,
+          investigationId
+        )!.c;
+        feedback(investigationId, action.provider, Math.max(0, factsNow - factCount), 1);
+      }
       run(`UPDATE investigations SET updated_at = ? WHERE id = ?`, nowIso(), investigationId);
     }
 
     resolveEntities(investigationId);
     detectContradictions(investigationId);
+    detectCopies(investigationId);
     const stop = evaluateStop(investigationId);
     run(
       `UPDATE investigations SET status = 'complete', updated_at = ?, stop_reason = ? WHERE id = ?`,
@@ -614,6 +664,72 @@ export async function runInvestigation(investigationId: string) {
 export function stopInvestigation(id: string) {
   running.set(id, false);
   run(`UPDATE investigations SET status = 'paused', updated_at = ? WHERE id = ?`, nowIso(), id);
+}
+
+export async function ingestManual(
+  investigationId: string,
+  payload: {
+    url?: string;
+    text?: string;
+    email?: string;
+    username?: string;
+    inn?: string;
+    hint?: string;
+    hintKind?: string;
+  }
+) {
+  const { addUserHint, inferFromEmail } = await import("./inference.js");
+  const { addIdentifier, addPivot } = await import("./pivot.js");
+  if (payload.url) {
+    await ingestHit(
+      investigationId,
+      { url: payload.url, title: payload.url, snippet: payload.text || "", provider: "manual", rank: 1 },
+      undefined
+    );
+  }
+  if (payload.text && !payload.url) {
+    const sid = addSource({
+      investigationId,
+      sourceType: "user_upload",
+      title: "Manual text",
+      snippet: payload.text.slice(0, 240),
+    });
+    ingestText({ investigationId, text: payload.text, sourceId: sid });
+    inferFromText(investigationId, payload.text, sid);
+  }
+  if (payload.email) {
+    run(`INSERT INTO investigation_inputs (investigation_id, field, value) VALUES (?, 'email', ?)`, investigationId, payload.email);
+    inferFromEmail(investigationId, payload.email);
+    addIdentifier({ investigationId, kind: "email", value: payload.email, priority: "high", source: "manual" });
+  }
+  if (payload.username) {
+    addUserHint(investigationId, "username", payload.username, "manual username");
+    addIdentifier({
+      investigationId,
+      kind: "username",
+      value: payload.username,
+      priority: "low",
+      status: "HYPOTHESIS",
+      note: "username match ≠ same person",
+    });
+    addPivot(investigationId, "USERNAME", payload.username, "SOCIAL", payload.username, "manual username hint", 0.3);
+  }
+  if (payload.inn) {
+    addIdentifier({
+      investigationId,
+      kind: "inn",
+      value: payload.inn,
+      priority: "high",
+      status: "HYPOTHESIS",
+      note: "INN ≠ confirmed position; permitted public records only",
+    });
+    addPivot(investigationId, "INN", payload.inn, "REGISTRY", payload.inn, "manual INN", 0.6);
+  }
+  if (payload.hint) {
+    addUserHint(investigationId, payload.hintKind || "note", payload.hint, "USER_HINT");
+  }
+  detectCopies(investigationId);
+  return { ok: true };
 }
 
 export { addSource };

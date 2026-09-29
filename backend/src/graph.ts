@@ -1,5 +1,6 @@
 import { all, db, get, logAction, nowIso, run } from "./db.js";
 import { nameSimilarity } from "./nlp.js";
+import { independentSourceCount } from "./independence.js";
 import type { FactStatus } from "./types.js";
 
 export function upsertEntity(
@@ -93,12 +94,19 @@ export function addFact(opts: {
           opts.extract ?? null,
           opts.page ?? null
         );
-        const n = get<{ c: number }>(`SELECT COUNT(*) as c FROM fact_sources WHERE fact_id = ?`, existing.id)!.c;
+        const n = independentSourceCount(existing.id);
         let status = existing.status;
-        let conf = Math.min(0.99, existing.confidence + 0.08);
+        let conf = Math.min(0.99, existing.confidence + (n > 1 ? 0.08 : 0.02));
+        // Copies of the same text must not mint CONFIRMED.
         if (n >= 3) status = "CONFIRMED";
         else if (n >= 2) status = "SUPPORTED";
-        run(`UPDATE facts SET confidence = ?, status = ? WHERE id = ?`, conf, status, existing.id);
+        run(
+          `UPDATE facts SET confidence = ?, status = ?, independence_score = ? WHERE id = ?`,
+          conf,
+          status,
+          n,
+          existing.id
+        );
       }
     }
     return existing.id;

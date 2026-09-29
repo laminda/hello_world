@@ -153,6 +153,12 @@ export async function waybackCdx(url: string, limit = 12): Promise<WaybackSnapsh
   }
 }
 
+export async function searchYouTube(query: string): Promise<SearchHit[]> {
+  const q = /site:youtube\.com/i.test(query) ? query : `${query} site:youtube.com`;
+  const hits = await searchDuckDuckGo(q);
+  return hits.map((h) => ({ ...h, provider: "youtube" }));
+}
+
 export async function searchAll(query: string): Promise<SearchHit[]> {
   const [ddg, wikiRu, wikiEn, wd] = await Promise.allSettled([
     searchDuckDuckGo(query),

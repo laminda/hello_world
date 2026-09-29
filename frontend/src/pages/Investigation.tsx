@@ -1,10 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getWorkspace, startInvestigation, stopInvestigation, subscribeEvents } from "../api";
+import { getWorkspace, ingestManual, startInvestigation, stopInvestigation, subscribeEvents } from "../api";
 import type { FactStatus, Workspace } from "../types";
 import GraphView from "../components/GraphView";
+import PivotGraph from "../components/PivotGraph";
 
-const TABS = ["overview", "sources", "documents", "images", "facts", "graph", "raw", "audit"] as const;
+const TABS = [
+  "overview",
+  "strategy",
+  "pivots",
+  "hypotheses",
+  "sources",
+  "documents",
+  "images",
+  "facts",
+  "graph",
+  "raw",
+  "audit",
+] as const;
 type Tab = (typeof TABS)[number];
 
 function Badge({ status }: { status: string }) {
@@ -168,6 +181,9 @@ export default function Investigation() {
         </div>
       )}
 
+      {tab === "strategy" && <StrategyTab ws={ws} onIngest={reload} />}
+      {tab === "pivots" && <PivotsTab ws={ws} />}
+      {tab === "hypotheses" && <HypothesesTab ws={ws} />}
       {tab === "sources" && <SourcesTab ws={ws} />}
       {tab === "documents" && <DocsTab ws={ws} />}
       {tab === "images" && <ImagesTab ws={ws} onOpen={setPhotoId} />}
@@ -200,6 +216,8 @@ export default function Investigation() {
               <div>{fact.predicate}</div>
               <div className="k">Confidence</div>
               <div>{Math.round(fact.confidence * 100)}%</div>
+              <div className="k">Temporal</div>
+              <div>{fact.temporal_relevance || "UNKNOWN"}</div>
               <div className="k">Valid</div>
               <div>
                 {fact.valid_from || "—"} → {fact.valid_to || "—"}
@@ -208,7 +226,19 @@ export default function Investigation() {
               <div>{fact.document_date || "—"}</div>
               <div className="k">Page</div>
               <div>{fact.page ?? "—"}</div>
+              <div className="k">Extraction</div>
+              <div>{fact.extraction_confidence != null ? Math.round(fact.extraction_confidence * 100) + "%" : "—"}</div>
+              <div className="k">Src reliability</div>
+              <div>{fact.source_reliability != null ? Math.round(fact.source_reliability * 100) + "%" : "—"}</div>
+              <div className="k">Entity match</div>
+              <div>{fact.entity_match != null ? Math.round(fact.entity_match * 100) + "%" : "—"}</div>
+              <div className="k">Independence</div>
+              <div>{fact.independence_score ?? "—"} independent sources</div>
             </div>
+            <p className="small muted">
+              Source reliability и fact confidence разделены. Старый официальный документ не делает должность текущей.
+              Три копии одного пресс-релиза ≠ три независимых источника.
+            </p>
             {fact.extract && <div className="extract">EXTRACT: “{fact.extract}”</div>}
             <div className="kicker" style={{ marginTop: 16 }}>
               Sources
@@ -276,6 +306,168 @@ export default function Investigation() {
           </div>
         </aside>
       )}
+    </div>
+  );
+}
+
+function StrategyTab({ ws, onIngest }: { ws: Workspace; onIngest: () => void }) {
+  const s = ws.strategy;
+  const [form, setForm] = useState({ url: "", text: "", email: "", username: "", inn: "", hint: "" });
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await ingestManual(ws.investigation.id, form);
+      onIngest();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ overflow: "auto", padding: 12 }}>
+      <div className="kicker">Adaptive search</div>
+      <h2 style={{ margin: "6px 0 10px" }}>
+        {s?.profile.targetType} → {s?.preset?.name || s?.preset_id}
+      </h2>
+      <p className="muted small">{s?.preset?.description}</p>
+      <div className="pipeline" style={{ margin: "10px 0 16px" }}>
+        {(s?.profile.reasons || []).map((r) => (
+          <span key={r}>{r}</span>
+        ))}
+      </div>
+      <div className="kicker">What source is most likely to yield a new useful fact?</div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Source</th>
+            <th>Score</th>
+            <th>Relevance</th>
+            <th>Gain</th>
+            <th>Reliability</th>
+            <th>FP risk</th>
+            <th>Why</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(s?.scored || []).map((row) => (
+            <tr key={row.source_id}>
+              <td>
+                {row.name}
+                <div className="mono small muted">{row.source_id}</div>
+              </td>
+              <td className="mono">{row.score}</td>
+              <td className="mono">{row.target_relevance}</td>
+              <td className="mono">{row.information_gain}</td>
+              <td className="mono">{row.source_reliability}</td>
+              <td className="mono">{row.false_positive_risk}</td>
+              <td className="small muted">{row.reason}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="small muted">Score выбирает следующее действие, не достоверность человека.</p>
+      <div className="kicker" style={{ marginTop: 18 }}>
+        Manual source / USER_HINT
+      </div>
+      <div className="card form" style={{ maxWidth: 720 }}>
+        <label>
+          URL
+          <input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+        </label>
+        <label>
+          Email
+          <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        </label>
+        <label>
+          Username
+          <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+        </label>
+        <label>
+          ИНН (публичный)
+          <input value={form.inn} onChange={(e) => setForm({ ...form, inn: e.target.value })} />
+        </label>
+        <label className="wide">
+          Text / document extract
+          <textarea rows={2} value={form.text} onChange={(e) => setForm({ ...form, text: e.target.value })} />
+        </label>
+        <label className="wide">
+          Hint («кажется, никнейм fedor1985»)
+          <input value={form.hint} onChange={(e) => setForm({ ...form, hint: e.target.value })} />
+        </label>
+        <div className="actions">
+          <button className="btn primary" disabled={busy} onClick={submit} type="button">
+            Ingest as evidence / hint
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PivotsTab({ ws }: { ws: Workspace }) {
+  return (
+    <div className="raw-grid">
+      <div className="raw-nav">
+        <div className="panel-h">Identifiers</div>
+        {(ws.identifiers || []).map((i) => (
+          <div className="known-item" key={i.id}>
+            <div className="lbl">
+              {i.kind} · {i.priority}
+            </div>
+            <div className="val">{i.value}</div>
+            <div className="small muted">{i.note}</div>
+          </div>
+        ))}
+      </div>
+      <div className="graph-wrap">
+        <div className="panel-h">Pivot graph · NAME → INN / EMAIL / USERNAME → documents → EXIF</div>
+        <PivotGraph graph={ws.pivotGraph} />
+      </div>
+    </div>
+  );
+}
+
+function HypothesesTab({ ws }: { ws: Workspace }) {
+  return (
+    <div style={{ overflow: "auto" }}>
+      <div className="warn-banner">
+        Запрещено: совпадение имени/username/лица = тот же человек; часть email = доказательство;
+        зодиак = дата рождения; старый документ = текущая должность; копипаст = три источника.
+        Всё это остаётся hypothesis.
+      </div>
+      <table className="table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Level</th>
+            <th>Type</th>
+            <th>Statement</th>
+            <th>Status</th>
+            <th>Conf</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ws.hypotheses.map((h) => (
+            <tr key={h.id}>
+              <td className="mono small">{h.id}</td>
+              <td>{(h as { level?: number }).level ?? "—"}</td>
+              <td>{(h as { hyp_type?: string }).hyp_type || "—"}</td>
+              <td>
+                {h.statement}
+                <div className="small muted">{(h as { reason?: string }).reason}</div>
+              </td>
+              <td>
+                <Badge status={h.status} />
+              </td>
+              <td className="mono">{Math.round(h.confidence * 100)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="kicker" style={{ margin: 12 }}>
+        Inferences (never written as facts)
+      </div>
+      <pre className="pre pad">{JSON.stringify(ws.inferences || [], null, 2)}</pre>
     </div>
   );
 }

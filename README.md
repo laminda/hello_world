@@ -43,6 +43,23 @@ User → Investigation → Search Planner → Search → Sources
 
 Neo4j, Qdrant, Playwright, PaddleOCR, face embeddings — заложены в архитектуре, подключаются в MVP-2/3.
 
+## Dynamic Source & Search Strategy Engine
+
+Система не ищет всех одинаково. Диспетчер выбирает **preset** по роли и известным идентификаторам:
+
+| Цель | Источники (порядок) |
+|---|---|
+| CEO / public executive | сайт, СМИ, YouTube, конференции, отчёты, архив |
+| Middle manager | PDF/отчёты, сайт, архив, конференции, YouTube |
+| Low-publicity | документы, email, username, соц. профили, мероприятия |
+| Known email | local-part → username hypothesis → профили |
+| Known INN | только разрешённый публичный реестр; ИНН ≠ должность |
+| Zodiac mention | период рождения как **HYPOTHESIS**, не `born_on` |
+
+Score источника = information gain + target relevance + reliability + identifier match − cost − false-positive risk. Это выбор следующего действия, не оценка человека.
+
+Inference никогда не становится фактом. Три копии одного пресс-релиза — один источник. Старый официальный документ помечается `HISTORICAL`, не «текущая должность».
+
 ## Юридические ограничения
 
 - Только publicly available information

@@ -497,6 +497,12 @@ h1, h2, h3 { margin: 0; font-weight: 600; }
   line-height: 1.5;
   max-width: 72ch;
 }
+.tabs button { font-size: 10px; padding: 8px 8px; }
+.st-OPEN { color: var(--amber); border-color: var(--amber); }
+.st-CURRENT { color: var(--green); border-color: var(--green); }
+.st-HISTORICAL { color: var(--muted); border-color: var(--dim); }
+.st-USER_HINT { color: var(--purple); border-color: var(--purple); }
+.st-middle_manager, .st-public_top_manager { color: var(--cyan); border-color: var(--cyan); }
 
 @media (max-width: 1100px) {
   .home-hero { grid-template-columns: 1fr; }

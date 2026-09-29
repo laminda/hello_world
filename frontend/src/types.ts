@@ -43,6 +43,11 @@ export interface Workspace {
     document_date?: string;
     subject_entity_id?: string;
     object_entity_id?: string;
+    temporal_relevance?: string;
+    extraction_confidence?: number;
+    source_reliability?: number;
+    entity_match?: number;
+    independence_score?: number;
   }>;
   factSources: Array<{
     fact_id: string;
@@ -142,4 +147,55 @@ export interface Workspace {
     confidence: number;
     value: string;
   }>;
+  inferences?: Array<Record<string, unknown>>;
+  identifiers?: Array<{
+    id: string;
+    kind: string;
+    value: string;
+    priority: string;
+    status: string;
+    confidence: number;
+    note?: string;
+  }>;
+  pivots?: Array<{
+    from_kind: string;
+    from_value: string;
+    to_kind: string;
+    to_value: string;
+    reason: string;
+    confidence: number;
+    status: string;
+  }>;
+  pivotGraph?: {
+    nodes: Array<{ id: string; kind: string; label: string }>;
+    edges: Array<{ from: string; to: string; reason: string; confidence: number }>;
+    identifiers: Array<{ kind: string; value: string; priority: string; status: string }>;
+  };
+  hints?: Array<{ id: string; kind: string; value: string; note?: string; status: string }>;
+  strategy?: {
+    profile: {
+      targetType: string;
+      presetId: string;
+      publicity: string;
+      reasons: string[];
+      known: string[];
+      unknown: string[];
+    };
+    scored: Array<{
+      source_id: string;
+      name: string;
+      score: number;
+      target_relevance: number;
+      source_reliability: number;
+      information_gain: number;
+      cost: number;
+      false_positive_risk: number;
+      reason: string;
+      legal_note?: string | null;
+    }>;
+    target_type?: string;
+    preset_id?: string;
+    preset?: { name?: string; description?: string; sources_json?: string; stop_when?: string };
+    effectiveness?: Array<Record<string, unknown>>;
+  };
 }

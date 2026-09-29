@@ -5,9 +5,15 @@ import path from "node:path";
 import fs from "node:fs";
 import { all, ASSETS, audit, DATA_DIR, db, get, nowIso, ROOT, run } from "./db.js";
 import { seedDemo } from "./seed.js";
-import { bus, runInvestigation, stopInvestigation } from "./agent.js";
+import { seedStrategyLayer } from "./seed-strategy.js";
+import { bus, ingestManual, runInvestigation, stopInvestigation } from "./agent.js";
 import { investigationGraph } from "./graph.js";
 import { knownUnknown, planQueries } from "./planner.js";
+import { classifyTarget, recommendNext, strategyState } from "./strategy.js";
+import { listCatalog } from "./registry.js";
+import { createConnector, listConnectors } from "./connectors.js";
+import { listInferences } from "./inference.js";
+import { pivotGraph } from "./pivot.js";
 import type { InvestigationInput } from "./types.js";
 
 const PORT = Number(process.env.PORT || 3001);
@@ -82,6 +88,7 @@ app.post("/api/investigations", async (req, reply) => {
     "phone",
     "username",
     "notes",
+    "inn",
   ];
   for (const f of fields) {
     const v = body[f];
@@ -189,6 +196,10 @@ app.get("/api/investigations/:id/workspace", async (req, reply) => {
   );
   const graph = investigationGraph(id);
   const evidenceSummary = summarizeEvidence(facts as Array<{ predicate: string; status: string; confidence: number; value: string }>);
+  const inputMap: Record<string, string> = {};
+  for (const r of inputs) inputMap[r.field] = r.value;
+  const profile = classifyTarget(inputMap);
+  const { scored } = recommendNext(profile, inputMap, []);
   return {
     investigation: inv,
     inputs,
@@ -205,6 +216,12 @@ app.get("/api/investigations/:id/workspace", async (req, reply) => {
     timeline,
     contradictions,
     hypotheses,
+    inferences: listInferences(id),
+    identifiers: all(`SELECT * FROM identifiers WHERE investigation_id = ?`, id),
+    pivots: all(`SELECT * FROM pivots WHERE investigation_id = ?`, id),
+    pivotGraph: pivotGraph(id),
+    hints: all(`SELECT * FROM user_hints WHERE investigation_id = ?`, id),
+    strategy: { profile, scored: scored.slice(0, 10), ...strategyState(id) },
     actions,
     queries,
     results,
@@ -327,7 +344,33 @@ if (fs.existsSync(frontendDist)) {
   });
 }
 
+app.get("/api/catalog", async () => ({ catalog: listCatalog(), connectors: listConnectors() }));
+
+app.post("/api/catalog/connectors", async (req, reply) => {
+  try {
+    const id = createConnector(req.body as Parameters<typeof createConnector>[0]);
+    reply.code(201);
+    return { id };
+  } catch (err) {
+    reply.code(400);
+    return { error: (err as Error).message };
+  }
+});
+
+app.get("/api/presets", async () => ({
+  presets: all(`SELECT * FROM search_presets`),
+  effectiveness: all(`SELECT * FROM source_effectiveness ORDER BY target_type, source_id`),
+}));
+
+app.post("/api/investigations/:id/ingest", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const inv = get(`SELECT id FROM investigations WHERE id = ?`, id);
+  if (!inv) return reply.code(404).send({ error: "not found" });
+  return ingestManual(id, (req.body ?? {}) as Record<string, string>);
+});
+
 await seedDemo();
+seedStrategyLayer();
 
 app.listen({ port: PORT, host: HOST }).then(() => {
   console.log(`SVOD API on http://${HOST}:${PORT}`);

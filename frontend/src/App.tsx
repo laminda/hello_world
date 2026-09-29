@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
 import NewInvestigation from "./pages/NewInvestigation";
 import Investigation from "./pages/Investigation";
+import SourcesAdmin from "./pages/SourcesAdmin";
 
 export default function App() {
   const loc = useLocation();
@@ -19,6 +20,9 @@ export default function App() {
           <Link to="/new">
             <button className={loc.pathname === "/new" ? "on" : ""}>Новое расследование</button>
           </Link>
+          <Link to="/catalog">
+            <button className={loc.pathname === "/catalog" ? "on" : ""}>Источники</button>
+          </Link>
         </nav>
         <div className="meta">
           <span>PUBLIC SOURCES ONLY</span>
@@ -28,6 +32,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/new" element={<NewInvestigation />} />
+        <Route path="/catalog" element={<SourcesAdmin />} />
         <Route path="/inv/:id" element={<Investigation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

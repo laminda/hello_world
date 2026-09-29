@@ -14,6 +14,7 @@ const FIELDS = [
   ["phone", "Телефон"],
   ["username", "Username"],
   ["url", "URL"],
+  ["inn", "ИНН (только публичный/законный источник)"],
 ];
 
 export default function NewInvestigation() {

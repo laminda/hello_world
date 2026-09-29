@@ -67,6 +67,7 @@ export interface InvestigationInput {
   phone?: string;
   username?: string;
   notes?: string;
+  inn?: string;
 }
 
 export interface SearchHit {
