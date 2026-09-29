@@ -1,72 +1,95 @@
-# SVOD — OSINT Investigation & Evidence Intelligence Platform
+# SVOD — Person Intelligence
 
-Версия 1.0. Web-приложение + API + асинхронный investigation-агент.
+OSINT-стол для идентификации публичных людей: расследование, а не чат с LLM и не «поисковик по людям».
 
-SVOD — не «поисковик по людям» и не `User → Prompt → LLM → Answer`. Это система управления расследованием: она превращает открытый веб и исторические цифровые артефакты в **проверяемый граф свидетельств**.
-
-Каждый факт связан с источником и несёт статус:
+Открытый веб и исторические цифровые артефакты собираются в **проверяемый граф свидетельств**. Каждый факт связан с источником и несёт статус:
 
 `OBSERVED` · `HYPOTHESIS` · `SUPPORTED` · `CONFIRMED` · `CONFLICT` · `UNVERIFIED` · `REJECTED`
 
-Система **не считает найденное автоматически истинным**. EXIF, OCR и совпадение лица — это evidence, не доказательство личности. Незаполненное поле не добивается догадкой.
+Найденное **не считается автоматически истинным**. Имя без второго независимого сигнала ≠ «тот же человек». Пустое поле не добивается догадкой. Интерфейс не подставляет фейковые фото и не ставит «Идентифицирована», пока identity-слой этого не сказал.
 
 ## Цикл агента
 
 ```
-User → Investigation → Search Planner → Search → Sources
-     → Documents / Images / Archives → Extraction → Entities → Facts
+User → Investigation → Search Planner → Tool (methodology)
+     → Sources → Extraction → Entities → Facts
      → Entity Resolution → Evidence Graph → Contradiction Detection
-     → Next Search → … → Final Report
+     → Next Tool → … → stop (identity / search down / limit)
 ```
 
-Планировщик оценивает действия:
+Каждый метод — отдельный **tool**: имя, JSON-схема, `execute`, observation. Модули независимы (`google-dorks`, `search-engines`, `digital-search`, `person-intel`, …).
+
+Планировщик:
 
 `score = information_gain × source_quality × identity_relevance − cost − duplicate_probability`
 
-Остановка, когда критические поля идентичности подтверждены независимыми источниками и нет неразрешённого критического противоречия.
+Стоп, когда личность подтверждена ≥2 независимыми сигналами, поисковый стек недоступен (`tls`/`network` — не жжём итерации), или исчерпан лимит.
 
-## Стек MVP-1
+## Поиск
+
+Официальные API, не HTML-скрейп `google.com` / `yandex.ru`:
+
+| Tool | API | Credentials |
+|---|---|---|
+| `google_search` | [Google Custom Search JSON](https://developers.google.com/custom-search/v1/overview) | `google_api_key` + `google_cx` |
+| `yandex_search` | [Yandex Search XML](https://yandex.com/dev/xml/) | `yandex_user` + `yandex_api_key` |
+
+Без ключей tools **fail closed**: `error: config`, пустые hits, без фейковых сниппетов.
+
+`web_search` / `multi_engine_search`: сначала keyed API, затем публичные HTML-движки (DuckDuckGo → Brave → Bing → Mojeek → DDG Lite). `tls` / `empty` / `config` ≠ успех.
+
+Также: Wikipedia, Wikidata, Wayback CDX, dorks, speaker/conference/company pages, GitHub, публичные сниппеты HH/LinkedIn (без логина).
+
+## Настройки
+
+Ключи хранятся только на хосте, в `/api/settings` **не возвращаются** (только `*_set` и публичный CX / Yandex user).
+
+| Setting / env | Назначение |
+|---|---|
+| `llm_api_key` · `SVOD_LLM_API_KEY` / `OPENAI_API_KEY` | LLM (опционально) |
+| `google_api_key` · `SVOD_GOOGLE_API_KEY` / `GOOGLE_API_KEY` | Google CSE |
+| `google_cx` · `SVOD_GOOGLE_CX` / `GOOGLE_CSE_ID` | Search Engine ID |
+| `yandex_user` · `SVOD_YANDEX_USER` / `YANDEX_USER` | логин XML API |
+| `yandex_api_key` · `SVOD_YANDEX_API_KEY` / `YANDEX_API_KEY` | ключ XML API |
+
+UI: **Настройки** — LLM, Google, Yandex, вкл/выкл модулей и отдельных tools.
+
+## Стек
 
 | Слой | Реализация |
 |---|---|
-| Frontend | React 18, TypeScript, Vite |
+| Frontend | React 18, TypeScript, Vite — Person Intelligence desk |
 | Backend | Node.js 22, Fastify, TypeScript |
-| БД | SQLite (`node:sqlite`) — схема как в ТЗ (PostgreSQL-ready) |
-| Очередь | in-process agent loop (BullMQ/Redis — следующий этап) |
-| Поиск | DuckDuckGo HTML, Wikipedia, Wikidata |
+| БД | SQLite (`node:sqlite`) |
+| Очередь | in-process agent loop |
+| Поиск | Google CSE, Yandex XML, HTML-движки, Wikipedia/Wikidata |
 | Архивы | Wayback Machine CDX |
 | HTML | Cheerio, robots.txt |
 | PDF | pdf-lib + извлечение строк |
-| EXIF | exifr |
 | Граф | табличная модель Evidence Graph |
-| Хранилище | локальные `data/assets/original` (оригинал не перезаписывается) |
+| Хранилище | `data/assets/original` (оригинал не перезаписывается) |
 
-Neo4j, Qdrant, Playwright, PaddleOCR, face embeddings — заложены в архитектуре, подключаются в MVP-2/3.
+## Стратегия источников
 
-## Dynamic Source & Search Strategy Engine
-
-Система не ищет всех одинаково. Диспетчер выбирает **preset** по роли и известным идентификаторам:
+Диспетчер выбирает **preset** по роли и известным идентификаторам — это выбор следующего действия, не оценка человека.
 
 | Цель | Источники (порядок) |
 |---|---|
 | CEO / public executive | сайт, СМИ, YouTube, конференции, отчёты, архив |
-| Middle manager | PDF/отчёты, сайт, архив, конференции, YouTube |
-| Low-publicity | документы, email, username, соц. профили, мероприятия |
-| Known email | local-part → username hypothesis → профили |
-| Known INN | только разрешённый публичный реестр; ИНН ≠ должность |
-| Zodiac mention | период рождения как **HYPOTHESIS**, не `born_on` |
+| Middle manager | PDF/отчёты, сайт, архив, конференции |
+| Low-publicity | документы, email, username, мероприятия |
+| Known email | local-part → username hypothesis |
+| Known INN | только разрешённый публичный реестр; **ИНН ≠ должность**, org INN ≠ personal INN |
 
-Score источника = information gain + target relevance + reliability + identifier match − cost − false-positive risk. Это выбор следующего действия, не оценка человека.
-
-Inference никогда не становится фактом. Три копии одного пресс-релиза — один источник. Старый официальный документ помечается `HISTORICAL`, не «текущая должность».
+Inference никогда не становится фактом. Три копии одного пресс-релиза — один источник. Старый официальный документ — `HISTORICAL`, не «текущая должность».
 
 ## Юридические ограничения
 
 - Только publicly available information
-- Соблюдение robots.txt, rate-limit по домену, идентифицируемый User-Agent
-- Нет обхода аутентификации, paywall, закрытых баз и непубличных ПДн
-- Атрибуция источника, контроль хранения, audit log
-- Файлы обрабатываются как потенциально вредоносные (sandbox — следующий этап)
+- robots.txt, rate-limit, идентифицируемый User-Agent
+- Нет логин-скрейпа, paywall bypass, закрытых баз и непубличных ПДн
+- Нет обхода Google/Yandex HTML; только официальные API + открытые HTML-движки
+- Атрибуция источника, audit log
 
 ## Запуск
 
@@ -74,18 +97,13 @@ Inference никогда не становится фактом. Три копи
 npm run install:all
 npm run dev:api     # :3001
 npm run dev:web     # :5173  (проксирует /api)
+npm test            # backend, ~85 тестов
 ```
 
-Откройте веб-интерфейс. Демо-расследование `INV-000001` уже засеяно:
-
-*Identification of Fedor Mikhailovich* — ФИО CONFIRMED, должность CONFIRMED, организация CONFIRMED, дата рождения CONFLICT (1981 vs 1982, UNRESOLVED), место рождения UNVERIFIED.
-
-Новое расследование запускает живой цикл по открытым источникам.
+Демо `INV-000001` уже засеяно. Новое расследование запускает живой цикл по открытым источникам.
 
 ## Объекты
 
 Person · Organization · Document · Image · Source · Fact · Evidence
 
 `Fact ← Evidence ← Source`  и  `Source A —COPIED_FROM→ Source B` (независимость источников).
-
-Временная модель факта: `event_date / document_date / publication_date / archive_date / discovery_date`.

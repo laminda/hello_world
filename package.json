@@ -2,7 +2,7 @@
   "name": "svod",
   "version": "1.0.0",
   "private": true,
-  "description": "SVOD — OSINT Investigation & Evidence Intelligence Platform",
+  "description": "SVOD — Person Intelligence desk: public-source OSINT, evidence graph, Google CSE and Yandex XML",
   "scripts": {
     "dev:api": "npm run start --prefix backend",
     "dev:web": "npm run dev --prefix frontend",
