@@ -1,79 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { getWorkspace, ingestManual, runTool, startInvestigation, stopInvestigation, subscribeEvents } from "../api";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { createInvestigation, getWorkspace, ingestManual, runTool, startInvestigation, stopInvestigation, subscribeEvents } from "../api";
 import type { FactStatus, Workspace } from "../types";
 import GraphView from "../components/GraphView";
 import PivotGraph from "../components/PivotGraph";
+import Avatar from "../components/Avatar";
+import SearchPanel from "../components/SearchPanel";
 
-const TABS = [
-  "overview",
-  "candidates",
-  "funnel",
-  "strategy",
-  "pivots",
-  "hypotheses",
-  "sources",
-  "documents",
-  "images",
-  "facts",
-  "graph",
-  "raw",
-  "audit",
-  "history",
-  "tools",
+const VIEW = [
+  ["overview", "Обзор"],
+  ["sources", "Источники"],
+  ["documents", "Документы"],
+  ["images", "Изображения"],
+  ["social", "Соц. сети"],
+  ["timeline", "Хронология"],
+  ["graph", "Граф связей"],
+  ["funnel", "Воронка"],
+  ["history", "История"],
+  ["tools", "Tools"],
+  ["facts", "Факты"],
 ] as const;
-type Tab = (typeof TABS)[number];
+type Tab = (typeof VIEW)[number][0];
 
 function Badge({ status }: { status: string }) {
   return <span className={`badge st-${status}`}>{status}</span>;
 }
-
-function ProgressStrip({ ws }: { ws: Workspace }) {
-  const m = (ws as Workspace & { metrics?: Metrics }).metrics;
-  const running = ws.investigation.status === "running";
-  const pct = m?.pct ?? 0;
-  return (
-    <div className="progress-strip">
-      <div className="meter lg">
-        <i style={{ width: `${pct}%` }} className={running ? "pulse" : ""} />
-      </div>
-      <span className="mono small">
-        {pct}% · facts {m?.observed ?? 0}/{m?.facts ?? ws.facts.length} · src {m?.independent ?? 0}/{m?.sources ?? ws.sources.length} ·
-        tools {m?.toolsOk ?? 0}/{m?.tools ?? 0} · q {m?.funnel?.queries ?? m?.queries ?? ws.queries.length} · hits {m?.funnel?.hits ?? 0} ·
-        waste {m?.funnel?.waste_pct ?? 0}% · tls {m?.funnel?.tls ?? 0} · empty {m?.funnel?.empty ?? 0}
-      </span>
-      <div className="chip-row">
-        {(m?.checks || []).map((c) => (
-          <span key={c.id} className={`chip ${c.ok ? "on" : "off"}`}>
-            {c.ok ? "✓" : "○"} {c.label}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-type Metrics = {
-  pct: number;
-  facts: number;
-  observed: number;
-  sources: number;
-  independent: number;
-  tools: number;
-  toolsOk: number;
-  queries: number;
-  conflicts: number;
-  checks: Array<{ id: string; label: string; ok: boolean }>;
-  funnel?: {
-    queries: number;
-    hits: number;
-    ingested: number;
-    waste_pct: number;
-    empty: number;
-    tls: number;
-    identified: boolean;
-  };
-};
 
 function fileUrl(img: Workspace["images"][number]) {
   if (!img.storage_path) return "";
@@ -82,13 +33,27 @@ function fileUrl(img: Workspace["images"][number]) {
   return `/files/original/${img.id}.${ext}`;
 }
 
+function val(ws: Workspace, pred: string) {
+  return ws.facts.find((f) => f.predicate === pred)?.value;
+}
+
+function scoreClass(n: number) {
+  if (n >= 0.75) return "hi";
+  if (n >= 0.45) return "mid";
+  return "lo";
+}
+
 export default function Investigation() {
   const { id } = useParams<{ id: string }>();
+  const [sp] = useSearchParams();
+  const nav = useNavigate();
   const [ws, setWs] = useState<Workspace | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [sel, setSel] = useState(0);
   const [factId, setFactId] = useState<string | null>(null);
   const [photoId, setPhotoId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const reload = () => {
     if (!id) return;
@@ -98,14 +63,21 @@ export default function Investigation() {
   };
 
   useEffect(() => {
+    const t = sp.get("tab");
+    if (t === "docs") setTab("documents");
+    else if (t === "archive") setTab("sources");
+    else if (t && VIEW.some((v) => v[0] === t)) setTab(t as Tab);
+  }, [sp]);
+
+  useEffect(() => {
+    if (id) {
+      try { sessionStorage.setItem("svod.lastInv", id); } catch { /* */ }
+    }
     reload();
     if (!id) return;
     const off = subscribeEvents(id, () => reload());
     const t = setInterval(reload, 4000);
-    return () => {
-      off();
-      clearInterval(t);
-    };
+    return () => { off(); clearInterval(t); };
   }, [id]);
 
   const fact = ws?.facts.find((f) => f.id === factId);
@@ -114,282 +86,232 @@ export default function Investigation() {
   if (err) return <div className="page">{err}</div>;
   if (!ws) return <div className="page muted">Загрузка досье…</div>;
 
-  const person = ws.entities.find((e) => e.kind === "PERSON");
+  const input: Record<string, string> = {};
+  for (const i of ws.inputs) input[i.field] = i.value;
+  const cands = (ws.candidates && ws.candidates.length
+    ? ws.candidates
+    : ws.entities.filter((e) => e.kind === "PERSON").map((e) => ({
+        id: e.id,
+        name: e.canonical_name,
+        company: val(ws, "works_at"),
+        position: val(ws, "held_position"),
+        same_person: e.status === "CONFIRMED" ? "likely" : "insufficient",
+        confidence: e.confidence,
+      }))) as NonNullable<Workspace["candidates"]>;
+  const chosen = cands[Math.min(sel, Math.max(0, cands.length - 1))];
+  const ident = ws.identity;
+  const conf = ident?.identity_confidence ?? chosen?.confidence ?? 0;
+  const personName = ident?.person || chosen?.name || [input.name, input.last_name].filter(Boolean).join(" ") || "—";
+  const identified = Boolean(ident?.identified);
+  const photoSrc = ws.images[0] ? fileUrl(ws.images[0]) : undefined;
+
+  const onSearch = async (form: Record<string, string>) => {
+    setBusy(true);
+    try {
+      const created = await createInvestigation(form);
+      try { sessionStorage.setItem("svod.lastInv", created.id); } catch { /* */ }
+      await startInvestigation(created.id);
+      nav(`/inv/${created.id}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <div className="workspace">
-      <div className="ws-head">
-        <Link to="/" className="muted small">
-          ←
-        </Link>
-        <span className="id">{ws.investigation.id}</span>
-        <h1>{ws.investigation.title}</h1>
-        <Badge status={ws.investigation.status} />
-        {ws.investigation.is_demo ? <Badge status="HYPOTHESIS" /> : null}
-        <div className="tabs">
-          {TABS.map((t) => (
-            <button key={t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t}
-            </button>
-          ))}
+    <div className="page workspace">
+      <SearchPanel initial={input} busy={busy} onSearch={onSearch} />
+      <div className="flex" style={{ marginBottom: 10, justifyContent: "space-between" }}>
+        <div className="flex">
+          <span className="mono small" style={{ color: "var(--accent)" }}>{ws.investigation.id}</span>
+          <Badge status={ws.investigation.status} />
+          <button className="btn ghost" onClick={() => startInvestigation(ws.investigation.id).then(reload)}>Запустить агент</button>
+          <button className="btn ghost" onClick={() => stopInvestigation(ws.investigation.id)}>Пауза</button>
         </div>
-        <div className="grow" />
-        <button className="btn" onClick={() => startInvestigation(ws.investigation.id).then(reload)}>
-          Run agent
-        </button>
-        <button className="btn ghost" onClick={() => stopInvestigation(ws.investigation.id)}>
-          Pause
-        </button>
-        <button
-          className="btn ghost"
-          onClick={() => {
+        <div className="flex">
+          <a className="btn ghost" href={`/api/investigations/${ws.investigation.id}/report`} target="_blank" rel="noreferrer">Отчёт</a>
+          <button className="btn ghost" onClick={() => {
             const blob = new Blob([JSON.stringify(ws, null, 2)], { type: "application/json" });
             const a = document.createElement("a");
             a.href = URL.createObjectURL(blob);
             a.download = `${ws.investigation.id}.json`;
             a.click();
-          }}
-        >
-          Export JSON
-        </button>
-        <a className="btn ghost" href={`/api/investigations/${ws.investigation.id}/report`} target="_blank" rel="noreferrer">
-          Report
-        </a>
+          }}>Экспорт JSON</button>
+        </div>
       </div>
-      <ProgressStrip ws={ws} />
 
-      <div className="ws-body">
-      {tab === "overview" && (
-        <>
-        {ws.identity && (
-          <div className="identity-card">
-            <div className="kicker">Identity</div>
-            <div className="flex">
-              <h3 style={{ margin: 0 }}>{ws.identity.person || "—"}</h3>
-              <span className={`badge ${ws.identity.identified ? "st-SUPPORTED" : "st-HYPOTHESIS"}`}>
-                {ws.identity.identified ? "IDENTIFIED" : "CANDIDATE"} {Math.round((ws.identity.identity_confidence || 0) * 100)}%
-              </span>
-              <span className="badge st-OBSERVED">{ws.identity.playbook?.playbook}</span>
-            </div>
-            <div className="small muted">{(ws.identity.why || []).join(" · ")}</div>
+      <div className="pi-split">
+        <aside className="cand-rail">
+          <div className="cand-h">
+            <b>Результаты поиска ({cands.length})</b>
+            <span className="tiny muted">по релевантности</span>
           </div>
-        )}
-        <div className="overview-grid">
-          <div className="ws-main">
-            <div className="col">
-              <div className="panel-h">Known</div>
-              {ws.inputs.map((i) => (
-                <div className="known-item" key={i.field}>
-                  <div className="lbl">{i.field}</div>
-                  <div className="val">{i.value}</div>
-                </div>
-              ))}
-              <div className="panel-h">Unknown / unresolved</div>
-              {ws.contradictions.map((c) => (
-                <div className="warn-banner" key={c.id}>
-                  CONFLICT {c.field}: {JSON.parse(c.values_json).join(" | ")} · {c.status}
-                </div>
-              ))}
-              {person && (
-                <div className="known-item">
-                  <div className="lbl">canonical entity</div>
-                  <div className="val">{person.canonical_name}</div>
-                  <div className="muted small" style={{ marginTop: 6 }}>
-                    {ws.aliases
-                      .filter((a) => a.entity_id === person.id)
-                      .map((a) => a.alias)
-                      .slice(0, 8)
-                      .join(" · ")}
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="col graph-wrap">
-              <div className="panel-h" style={{ position: "absolute", zIndex: 2, width: "100%", background: "rgba(12,17,24,0.75)" }}>
-                Entity graph
+          {cands.map((c, i) => (
+            <div key={c.id} className={`cand-item ${i === sel ? "on" : ""}`} onClick={() => setSel(i)}>
+              <Avatar name={c.name} size={40} />
+              <div>
+                <div className="nm">{c.name}</div>
+                <div className="sub">{c.position || "—"}</div>
+                <div className="sub">{c.company || "—"}</div>
               </div>
-              <GraphView graph={ws.graph} />
+              <span className={`score ${scoreClass(c.confidence || 0)}`}>{(c.confidence || 0).toFixed(2)}</span>
             </div>
-            <div className="col">
-              <div className="panel-h">Evidence</div>
-              {ws.evidenceSummary.map((e) => (
-                <div
-                  className="ev-row"
-                  key={e.predicate}
-                  onClick={() => {
-                    const f = ws.facts.find((x) => x.predicate === e.predicate);
-                    if (f) setFactId(f.id);
-                  }}
-                >
-                  <div>
-                    <div className="lbl">{e.label}</div>
-                    <div className="val">{e.value}</div>
-                    <div className="meter">
-                      <i style={{ width: `${Math.round(e.confidence * 100)}%` }} />
-                    </div>
-                  </div>
-                  <div>
-                    <Badge status={e.status} />
-                    <div className="mono small dim" style={{ marginTop: 6, textAlign: "right" }}>
-                      {Math.round(e.confidence * 100)}%
-                    </div>
-                  </div>
-                </div>
-              ))}
+          ))}
+          {!cands.length && <p className="pad muted small">Кандидатов пока нет — агент ищет по открытым источникам. Упоминание ≠ идентификация.</p>}
+        </aside>
+
+        <section className="profile">
+          <div className="profile-head">
+            <Avatar name={personName} src={photoSrc} size={96} />
+            <div>
+              <h2>{personName}</h2>
+              <div className="meta">{chosen?.position || val(ws, "held_position") || input.position || "—"} · {chosen?.company || val(ws, "works_at") || input.organization || "—"}</div>
+              <div className="kv-mini">
+                <div className="k">Компания</div><div>{val(ws, "works_at") || input.organization || "—"}</div>
+                <div className="k">Должность</div><div>{val(ws, "held_position") || input.position || "—"}</div>
+                <div className="k">Город</div><div>{val(ws, "born_in") || input.city || "—"}</div>
+                <div className="k">Email</div><div>{val(ws, "has_email") || input.email || "—"}</div>
+                <div className="k">Playbook</div><div className="mono small">{ident?.playbook?.playbook || "—"}</div>
+              </div>
             </div>
-          </div>
-          <div>
-            <div className="panel-h">Timeline</div>
-            <div className="timeline">
-              {ws.timeline.map((t) => (
-                <div className="tl-item" key={t.id}>
-                  <div className="dot" />
-                  <div className="yr">{t.date}</div>
-                  <div className="ev">{t.event}</div>
-                </div>
-              ))}
-            </div>
-            <div className="panel-h">Investigation log</div>
-            <div className="log" style={{ height: 96 }}>
-              {ws.actions.slice(-40).map((a) => (
-                <div className="log-line" key={a.id}>
-                  <span>{a.ts.slice(11, 19)}</span>
-                  <span className={`lv-${a.level}`}>{a.level.toUpperCase()}</span>
-                  <span>{a.message}</span>
-                </div>
-              ))}
+            <div className="status-col">
+              <span className={`status-pill ${identified ? "" : "warn"}`}>
+                {identified ? "Идентифицирована" : "Кандидат — не идентифицирован"}
+              </span>
+              <div className="conf-box">
+                <div className="flex"><span>Уверенность в идентификации</span><b>{conf.toFixed(2)}</b></div>
+                <div className="meter"><i style={{ width: `${Math.round(conf * 100)}%` }} /></div>
+                <small>{identified ? "Высокая уверенность" : "Нужно ≥2 независимых сигнала"}</small>
+                <small>Независимые источники: {ident?.independent_sources ?? 0}</small>
+                <small>Подтверждённых атрибутов: {(ident?.why || []).length}</small>
+              </div>
             </div>
           </div>
-        </div>
-        </>
-      )}
-      {tab === "candidates" && <CandidatesTab ws={ws} />}
-      {tab === "funnel" && <FunnelTab ws={ws} />}
-      {tab === "strategy" && <StrategyTab ws={ws} onIngest={reload} />}
-      {tab === "pivots" && <PivotsTab ws={ws} />}
-      {tab === "hypotheses" && <HypothesesTab ws={ws} />}
-      {tab === "sources" && <SourcesTab ws={ws} />}
-      {tab === "documents" && <DocsTab ws={ws} />}
-      {tab === "images" && <ImagesTab ws={ws} onOpen={setPhotoId} />}
-      {tab === "facts" && <FactsTab ws={ws} onOpen={setFactId} />}
-      {tab === "graph" && (
-        <div className="graph-wrap">
-          <GraphView graph={ws.graph} />
-        </div>
-      )}
-      {tab === "raw" && <RawTab ws={ws} />}
-      {tab === "audit" && <AuditTab ws={ws} />}
-      {tab === "history" && <HistoryTab ws={ws} />}
-      {tab === "tools" && <ToolsTab ws={ws} onRun={reload} />}
+
+          <div className="ptabs">
+            {VIEW.map(([id, label]) => (
+              <button key={id} className={tab === id ? "on" : ""} onClick={() => setTab(id)}>
+                {label}
+                {id === "sources" ? ` (${ws.sources.length})` : ""}
+                {id === "documents" ? ` (${ws.documents.length})` : ""}
+                {id === "images" ? ` (${ws.images.length})` : ""}
+              </button>
+            ))}
+          </div>
+
+          <div className="ws-body">
+            {tab === "overview" && (
+              <>
+                <div className="overview-3">
+                  <div>
+                    <div className="card-h">Ключевая информация</div>
+                    <div className="kv-mini">
+                      <div className="k">Полное имя</div><div>{personName}</div>
+                      <div className="k">Должность</div><div>{val(ws, "held_position") || "—"}</div>
+                      <div className="k">Компания</div><div>{val(ws, "works_at") || "—"}</div>
+                      <div className="k">Город</div><div>{input.city || "—"}</div>
+                      <div className="k">Email</div><div>{val(ws, "has_email") || "—"}</div>
+                      <div className="k">Алиасы</div>
+                      <div>{ws.aliases.slice(0, 6).map((a) => a.alias).join(" · ") || "—"}</div>
+                    </div>
+                    <p className="tiny muted" style={{ marginTop: 10 }}>{(ident?.why || []).join(" · ")}</p>
+                  </div>
+                  <div>
+                    <div className="card-h">Хронология карьеры</div>
+                    <ul className="career">
+                      {ws.timeline.length ? ws.timeline.map((t) => (
+                        <li key={t.id}>
+                          <span className="dot" />
+                          <div>
+                            <div className="yr">{t.date}</div>
+                            <div>{t.event}</div>
+                          </div>
+                        </li>
+                      )) : <li><span className="dot" /><div className="muted">Пока нет датированных событий</div></li>}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="card-h">Граф связей</div>
+                    <div className="mini-graph graph-wrap"><GraphView graph={ws.graph} /></div>
+                  </div>
+                </div>
+                <div className="bottom-3">
+                  <div>
+                    <div className="card-h">Последние источники</div>
+                    {ws.sources.slice(0, 5).map((s) => (
+                      <div className="list-row" key={s.id}>
+                        <span>{s.title || s.domain || s.id}</span>
+                        <span className={`score ${s.independence === "derived" ? "lo" : "hi"}`}>{s.source_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="card-h">Найденные документы</div>
+                    {ws.documents.slice(0, 5).map((d) => (
+                      <div className="list-row" key={d.id}>
+                        <span>{d.filename}</span>
+                        <span className="tiny muted">{d.mime_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="card-h">Изображения</div>
+                    <div className="thumbs">
+                      {ws.images.slice(0, 6).map((img) => (
+                        <div className="ph" key={img.id} onClick={() => setPhotoId(img.id)}>{img.id}</div>
+                      ))}
+                      {!ws.images.length && <div className="ph">нет публичных фото</div>}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            {tab === "sources" && <SourcesTab ws={ws} />}
+            {tab === "documents" && <DocsTab ws={ws} />}
+            {tab === "images" && <ImagesTab ws={ws} onOpen={setPhotoId} />}
+            {tab === "social" && (
+              <div className="pad">
+                <p className="muted">Публичные сниппеты, без логина. Совпадение username ≠ тот же человек.</p>
+                <table className="table">
+                  <thead><tr><th>Hint</th><th>Value</th></tr></thead>
+                  <tbody>
+                    {(ws.hints || []).filter((h) => /user|social|vk|telegram|github/i.test(h.kind + h.value)).map((h) => (
+                      <tr key={h.id}><td>{h.kind}</td><td>{h.value}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {tab === "timeline" && (
+              <ul className="career pad">
+                {ws.timeline.map((t) => (
+                  <li key={t.id}><span className="dot" /><div><div className="yr">{t.date}</div>{t.event}</div></li>
+                ))}
+              </ul>
+            )}
+            {tab === "graph" && <div className="graph-wrap"><GraphView graph={ws.graph} /></div>}
+            {tab === "funnel" && <FunnelTab ws={ws} />}
+            {tab === "history" && <HistoryTab ws={ws} />}
+            {tab === "tools" && <ToolsTab ws={ws} onRun={reload} />}
+            {tab === "facts" && <FactsTab ws={ws} onOpen={setFactId} />}
+          </div>
+        </section>
       </div>
 
       {fact && (
         <aside className="drawer">
           <div className="pad">
-            <div className="flex">
-              <div className="kicker">Fact</div>
-              <div className="grow" />
-              <button className="btn ghost" onClick={() => setFactId(null)}>
-                Close
-              </button>
-            </div>
+            <div className="flex"><div className="kicker">Fact</div><div className="grow" /><button className="btn ghost" onClick={() => setFactId(null)}>Close</button></div>
             <h2>{fact.value}</h2>
-            <div className="flex">
-              <Badge status={fact.status as FactStatus} />
-              <span className="mono small muted">{fact.id}</span>
-            </div>
-            <div className="kv">
-              <div className="k">Predicate</div>
-              <div>{fact.predicate}</div>
-              <div className="k">Confidence</div>
-              <div>{Math.round(fact.confidence * 100)}%</div>
-              <div className="k">Temporal</div>
-              <div>{fact.temporal_relevance || "UNKNOWN"}</div>
-              <div className="k">Valid</div>
-              <div>
-                {fact.valid_from || "—"} → {fact.valid_to || "—"}
-              </div>
-              <div className="k">Doc date</div>
-              <div>{fact.document_date || "—"}</div>
-              <div className="k">Page</div>
-              <div>{fact.page ?? "—"}</div>
-              <div className="k">Extraction</div>
-              <div>{fact.extraction_confidence != null ? Math.round(fact.extraction_confidence * 100) + "%" : "—"}</div>
-              <div className="k">Src reliability</div>
-              <div>{fact.source_reliability != null ? Math.round(fact.source_reliability * 100) + "%" : "—"}</div>
-              <div className="k">Entity match</div>
-              <div>{fact.entity_match != null ? Math.round(fact.entity_match * 100) + "%" : "—"}</div>
-              <div className="k">Independence</div>
-              <div>{fact.independence_score ?? "—"} independent sources</div>
-            </div>
-            <p className="small muted">
-              Source reliability и fact confidence разделены. Старый официальный документ не делает должность текущей.
-              Три копии одного пресс-релиза ≠ три независимых источника.
-            </p>
-            {fact.extract && <div className="extract">EXTRACT: “{fact.extract}”</div>}
-            <div className="kicker" style={{ marginTop: 16 }}>
-              Sources
-            </div>
-            {ws.factSources
-              .filter((fs) => fs.fact_id === fact.id)
-              .map((fs) => {
-                const s = ws.sources.find((x) => x.id === fs.source_id);
-                const d = ws.documents.find((x) => x.id === fs.document_id);
-                return (
-                  <div key={fs.source_id + (fs.document_id || "")} className="known-item">
-                    <div className="lbl">
-                      {s?.source_type} · {s?.id}
-                    </div>
-                    <div className="val">{s?.title}</div>
-                    <div className="small muted">
-                      {s?.url} {d ? `· ${d.filename}` : ""} {fs.page ? `· p.${fs.page}` : ""}
-                    </div>
-                  </div>
-                );
-              })}
+            <Badge status={fact.status as FactStatus} />
+            <p className="small muted">{fact.extract}</p>
           </div>
         </aside>
       )}
-
       {photo && (
         <aside className="drawer">
           <div className="pad">
-            <div className="flex">
-              <div className="kicker">Photo</div>
-              <div className="grow" />
-              <button className="btn ghost" onClick={() => setPhotoId(null)}>
-                Close
-              </button>
-            </div>
-            <h2>{photo.id}</h2>
-            <object data={fileUrl(photo)} type="image/svg+xml" style={{ width: "100%", height: 280, background: "#0a0e14" }} />
-            <div className="kv">
-              <div className="k">Source</div>
-              <div>{ws.sources.find((s) => s.id === photo.source_id)?.title || photo.source_id}</div>
-              <div className="k">SHA-256</div>
-              <div className="mono small">{photo.sha256}</div>
-              <div className="k">Faces</div>
-              <div>{ws.faces.filter((f) => f.image_id === photo.id).length}</div>
-            </div>
-            <div className="kicker">OCR</div>
-            {ws.ocr
-              .filter((o) => o.image_id === photo.id)
-              .map((o, i) => (
-                <div className="extract" key={i}>
-                  “{o.text}” · {Math.round((o.confidence || 0) * 100)}%
-                </div>
-              ))}
-            <div className="kicker">EXIF / metadata — evidence, not truth</div>
-            {ws.metadata
-              .filter((m) => m.image_id === photo.id)
-              .map((m) => (
-                <div className="kv" key={m.key}>
-                  <div className="k">{m.key}</div>
-                  <div>
-                    {m.value} <span className="dim">({m.source})</span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex"><div className="kicker">Photo</div><div className="grow" /><button className="btn ghost" onClick={() => setPhotoId(null)}>Close</button></div>
+            <object data={fileUrl(photo)} type="image/svg+xml" style={{ width: "100%", height: 280 }} />
           </div>
         </aside>
       )}
