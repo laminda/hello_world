@@ -68,17 +68,12 @@ export function isPublicHttpUrl(url: string): boolean {
     const u = new URL(url);
     if (u.protocol !== "http:" && u.protocol !== "https:") return false;
     const host = u.hostname.toLowerCase();
-    if (
-      host === "localhost" ||
-      host.endsWith(".local") ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host.startsWith("10.") ||
-      host.startsWith("192.168.") ||
-      host.startsWith("172.16.") ||
-      host.startsWith("169.254.")
-    ) {
-      return false;
+    if (host === "localhost" || host.endsWith(".local") || host === "127.0.0.1" || host === "::1") return false;
+    if (host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.")) return false;
+    const rfc1918 = host.match(/^172\.(\d+)\./);
+    if (rfc1918) {
+      const oct = Number(rfc1918[1]);
+      if (oct >= 16 && oct <= 31) return false;
     }
     return true;
   } catch {

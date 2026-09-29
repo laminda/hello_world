@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--experimental-sqlite tsx watch src/index.ts",
     "start": "NODE_OPTIONS=--experimental-sqlite tsx src/index.ts",
-    "seed": "NODE_OPTIONS=--experimental-sqlite tsx src/seed.ts"
+<<<<<<< HEAD
+    "seed": "NODE_OPTIONS=--experimental-sqlite tsx src/seed.ts",
+    "test": "NODE_OPTIONS='--experimental-sqlite --import ./test/preload.mjs' tsx --test --test-concurrency=1 test/*.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
