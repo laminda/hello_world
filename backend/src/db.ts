@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(__dirname, "../..");
-<<<<<<< HEAD
 export const DATA_DIR = process.env.SVOD_DATA_DIR || path.join(ROOT, "data");
 export const ASSETS = {
   original: path.join(DATA_DIR, "assets", "original"),
